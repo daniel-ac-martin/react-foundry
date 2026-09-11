@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@react-foundry/types-helpers": "workspace:*",
-    "fastify": "5.12.1",
+    "fastify": "5.12.3",
     "jest": "30.5.1",
     "jest-environment-jsdom": "30.5.1",
     "ts-jest": "29.4.12",
