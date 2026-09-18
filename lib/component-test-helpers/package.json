@@ -31,11 +31,11 @@
   "author": "Daniel A.C. Martin <npm@daniel-martin.co.uk> (http://daniel-martin.co.uk/)",
   "license": "MIT",
   "peerDependencies": {
-    "react": "^19.2.8",
+    "react": "^19.3.0",
     "react-router": "^8.3.1"
   },
   "devDependencies": {
-    "@types/react": "19.2.18",
+    "@types/react": "19.3.0",
     "typescript": "6.0.3"
   },
   "dependencies": {
