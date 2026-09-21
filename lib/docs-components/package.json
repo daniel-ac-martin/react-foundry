@@ -39,7 +39,7 @@
     "@react-foundry/memoize": "workspace:^",
     "@react-foundry/simple-table": "workspace:^",
     "@react-foundry/tabs": "workspace:^",
-    "prettier": "^3.9.6",
+    "prettier": "^3.9.8",
     "prismjs": "^1.30.0",
     "prismjs-github": "^1.0.0",
     "react-element-to-jsx-string": "^17.0.1",
