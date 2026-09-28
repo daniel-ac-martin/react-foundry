@@ -1,7 +1,6 @@
 import { FC, ReactElement, ReactNode, createElement as h } from 'react';
 import { MemoryRouter } from 'react-router';
 import { render as _render, RenderOptions } from '@testing-library/react';
-import userEventDefault from '@testing-library/user-event';
 
 import '@testing-library/jest-dom';
 
@@ -26,6 +25,5 @@ export const render = (
   }
 )
 
-export const userEvent = (userEventDefault as any).default as typeof userEventDefault;
-
 export * from '@testing-library/react';
+export * from '@testing-library/user-event';
