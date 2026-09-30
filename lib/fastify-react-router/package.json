@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@fastify/middie": "^9.3.4",
-    "@fastify/static": "^10.1.4",
+    "@fastify/static": "^10.1.5",
     "@react-foundry/react-router-context": "workspace:^",
     "@react-router/node": "^8.4.0",
     "fastify-plugin": "^6.0.0"
