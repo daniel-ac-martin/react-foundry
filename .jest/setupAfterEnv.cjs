@@ -1,47 +1,26 @@
 'use strict';
 
-const {
-  MessageChannel: NativeMessageChannel,
-  MessagePort
-} = require('node:worker_threads');
+const { MessageChannel } = require('node:worker_threads');
 const { TextEncoder, TextDecoder } = require('node:util');
 
-const onmessageDescriptor = Object.getOwnPropertyDescriptor(
-  MessagePort.prototype,
-  'onmessage'
-);
+const openChannels = [];
 
-if (
-  !onmessageDescriptor
-  || typeof onmessageDescriptor.get !== 'function'
-  || typeof onmessageDescriptor.set !== 'function'
-) {
-  throw new Error('Unable to wrap MessagePort.onmessage');
-}
-
-const keepPortUnreferenced = (port) => {
-  Object.defineProperty(port, 'onmessage', {
-    configurable: true,
-    enumerable: onmessageDescriptor.enumerable,
-    get() {
-      return onmessageDescriptor.get.call(this);
-    },
-    set(handler) {
-      onmessageDescriptor.set.call(this, handler);
-      this.unref();
-    }
-  });
-  port.unref();
-};
-
-class JestMessageChannel extends NativeMessageChannel {
-  constructor(...args) {
-    super(...args);
-    keepPortUnreferenced(this.port1);
-    keepPortUnreferenced(this.port2);
+class TrackedMessageChannel extends MessageChannel {
+  constructor() {
+    super();
+    openChannels.push(this);
   }
 }
 
-global.MessageChannel = JestMessageChannel;
+afterAll(() => {
+  let channel;
+
+  while ((channel = openChannels.pop())) {
+    channel.port1.close();
+    channel.port2.close();
+  }
+});
+
+global.MessageChannel = TrackedMessageChannel;
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
