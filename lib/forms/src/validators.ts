@@ -51,6 +51,20 @@ const words = (s: string): string[] => s
 
 const wordCount = (s: string): number => words(s).length;
 
+// A leap year, so that --02-29 is allowed where there is no year to judge it by
+const substituteYear = '2000';
+
+const isDate = (v: string): boolean => isISO8601(
+  v.startsWith('--')
+    ? `${substituteYear}${v.slice(1)}`
+    : v,
+  { strict: true }
+);
+
+const isFullDate = (v: string): boolean => (
+  /^\d{4}-\d{2}-\d{2}$/.test(v) && isDate(v)
+);
+
 const readyValidator = (f: ReadyValidatorFn, priority: number = 0): ReadyValidator =>
   Object.assign(f, { priority: priority });
 
@@ -172,7 +186,15 @@ export const range = (min: number, max: number) => (msg?: string) => readyValida
 export const date = (msg?: string) => readyValidator(
   (field: IFieldContext) => (value: string) =>
     validator(msg, value,
-              value && isISO8601(value, { strict: true }),
+              value && isDate(value),
+              `Enter a real ${prettyName(field)}`),
+  50
+);
+
+export const fullDate = (msg?: string) => readyValidator(
+  (field: IFieldContext) => (value: string) =>
+    validator(msg, value,
+              value && isFullDate(value),
               `Enter a real ${prettyName(field)}`),
   50
 );
