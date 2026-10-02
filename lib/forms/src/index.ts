@@ -22,6 +22,7 @@ export {
   date,
   email,
   exactLength,
+  fullDate,
   future,
   integer,
   maximum,

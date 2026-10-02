@@ -40,6 +40,10 @@ const toString = (v: any): string => (
     : String(v)
 );
 
+const isEmpty = (v: Record<string, unknown> | undefined): boolean => (
+  !v || Object.keys(v).every(k => !toString(v[k]))
+);
+
 export const withField = <A extends RawFieldProps, B extends A & FieldProps>(Component: RawField<A>, implicitValidators?: ReadyValidator[], preValidators?: IPreValidators): FC<B> => {
   const FormComponent: FC<B> = ({
     name,
@@ -56,9 +60,14 @@ export const withField = <A extends RawFieldProps, B extends A & FieldProps>(Com
 
     const preValidate = preValidators && (
       (v: Record<string, unknown>): Errors | undefined => {
+        if (isEmpty(v)) {
+          return undefined;
+        }
+
         const r: Errors = {};
 
         Object.keys(preValidators)
+          .filter(k => (props as Record<string, unknown>)[k] !== false)
           .map(k => {
             const error = preValidators[k]
               .map(f => f({ name: k })(v && toString(v[k])))
