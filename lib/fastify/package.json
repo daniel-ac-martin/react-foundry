@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/fastify",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "A customised Fastify server for running websites.",
   "type": "module",
   "main": "src/index.ts",

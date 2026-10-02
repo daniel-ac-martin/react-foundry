@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/simple-table",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "A simple table for displaying data.",
   "type": "module",
   "main": "src/SimpleTable.tsx",
@@ -43,7 +43,7 @@
     "@react-foundry/component-helpers": "workspace:^"
   },
   "peerDependencies": {
-    "@react-foundry/docs-components": "^0.5.4",
+    "@react-foundry/docs-components": "^0.6.0",
     "@storybook/addon-docs": "^10.6.0",
     "react": "^19.3.0"
   },

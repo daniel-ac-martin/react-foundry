@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/next-example",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "A Next.js application with React Foundry components.",
   "private": true,
   "scripts": {

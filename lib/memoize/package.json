@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/memoize",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Higher-order functions for memoizing pure functions.",
   "type": "module",
   "main": "src/index.ts",

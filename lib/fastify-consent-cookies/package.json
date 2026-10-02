@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/fastify-consent-cookies",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Fastify plugin to parse and set cookies only with user consent.",
   "type": "module",
   "main": "src/index.ts",

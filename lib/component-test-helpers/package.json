@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/component-test-helpers",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Helper functions for testing React components.",
   "type": "module",
   "main": "src/index.ts",
