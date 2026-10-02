@@ -956,6 +956,9 @@ importers:
         specifier: ^13.15.35
         version: 13.15.35
     devDependencies:
+      '@react-foundry/component-test-helpers':
+        specifier: workspace:*
+        version: link:../component-test-helpers
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0
@@ -965,6 +968,15 @@ importers:
       '@types/validator':
         specifier: 13.15.10
         version: 13.15.10
+      jest:
+        specifier: 30.5.2
+        version: 30.5.2(@types/node@24.19.0)(supports-color@8.1.1)
+      jest-environment-jsdom:
+        specifier: 30.5.2
+        version: 30.5.2(supports-color@8.1.1)
+      ts-jest:
+        specifier: 29.4.14
+        version: 29.4.14(@babel/core@8.0.6)(@jest/transform@30.5.1(supports-color@8.1.1))(@jest/types@30.5.1)(babel-jest@30.5.2(@babel/core@8.0.6)(supports-color@8.1.1))(esbuild@0.27.2)(jest-util@30.5.1)(jest@30.5.2(@types/node@24.19.0)(supports-color@8.1.1))(typescript@6.0.3)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
