@@ -51,18 +51,22 @@ const words = (s: string): string[] => s
 
 const wordCount = (s: string): number => words(s).length;
 
-// A leap year, so that --02-29 is allowed where there is no year to judge it by
-const substituteYear = '2000';
+const isDate = (v: string): boolean => {
+  const substituteYear = '2000'; // A leap year, so that the 29th of February is allowed
+  const substituteMonth = '01'; // A 31-day month, so that every day of a month is allowed
 
-const isDate = (v: string): boolean => isISO8601(
-  v.startsWith('--')
-    ? `${substituteYear}${v.slice(1)}`
-    : v,
-  { strict: true }
-);
+  return isISO8601(
+    v.startsWith('---')
+      ? `${substituteYear}-${substituteMonth}${v.slice(2)}`
+      : v.startsWith('--')
+        ? `${substituteYear}${v.slice(1)}`
+        : v,
+    { strict: true }
+  );
+};
 
 const isFullDate = (v: string): boolean => (
-  /^\d{4}-\d{2}-\d{2}$/.test(v) && isDate(v)
+  /^\d{4}-\d{2}-\d{2}$/.test(v) && isISO8601(v, { strict: true })
 );
 
 const readyValidator = (f: ReadyValidatorFn, priority: number = 0): ReadyValidator =>
