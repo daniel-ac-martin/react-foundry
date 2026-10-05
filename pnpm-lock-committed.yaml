@@ -305,8 +305,8 @@ importers:
         version: 14.2.6(supports-color@8.1.1)
     devDependencies:
       '@chromatic-com/storybook':
-        specifier: 5.3.1
-        version: 5.3.1(storybook@10.6.0(@types/react@19.3.0)(prettier@3.9.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
+        specifier: 5.4.0
+        version: 5.4.0(storybook@10.6.0(@types/react@19.3.0)(prettier@3.9.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
       '@storybook/addon-a11y':
         specifier: 10.6.0
         version: 10.6.0(storybook@10.6.0(@types/react@19.3.0)(prettier@3.9.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
@@ -1988,8 +1988,8 @@ packages:
   '@bufbuild/protobuf@2.10.0':
     resolution: {integrity: sha512-fdRs9PSrBF7QUntpZpq6BTw58fhgGJojgg39m9oFOJGZT+nip9b0so5cYY1oWl5pvemDLr0cPPsH46vwThEbpQ==}
 
-  '@chromatic-com/storybook@5.3.1':
-    resolution: {integrity: sha512-eUcbR9CddVmKAnjOiBCOz5rNdT096jiXIjR+qaWbUuTlgRdpc9yjTrk4/hiPAAykZrPYVNJN11p6rJgW9KNpKg==}
+  '@chromatic-com/storybook@5.4.0':
+    resolution: {integrity: sha512-U4Rny8H6BBa8uiRMnL0CFZyqZ0MWogN/szlMugsInfSnX+PtrLCVp2kjrvaG9bv6X5xSgHpnmepOzLm8+QFseA==}
     engines: {node: '>=20.0.0', yarn: '>=1.22.18'}
     peerDependencies:
       storybook: ^0.0.0-0 || ^10.1.0 || ^10.1.0-0 || ^10.2.0-0 || ^10.3.0-0 || ^10.4.0-0 || ^10.5.0-0 || ^10.6.0-0 || ^11.0.0-0
@@ -8660,7 +8660,7 @@ snapshots:
 
   '@bufbuild/protobuf@2.10.0': {}
 
-  '@chromatic-com/storybook@5.3.1(storybook@10.6.0(@types/react@19.3.0)(prettier@3.9.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
+  '@chromatic-com/storybook@5.4.0(storybook@10.6.0(@types/react@19.3.0)(prettier@3.9.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))':
     dependencies:
       '@neoconfetti/react': 1.0.0
       chromatic: 18.2.0
