@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/fastify-dev-logger",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "A Pino transport for pretty printing Fastify logs in dev environments.",
   "type": "module",
   "main": "src/index.js",

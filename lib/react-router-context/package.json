@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/react-router-context",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "A collection of React Router contexts for use in React Foundry applications.",
   "type": "module",
   "main": "src/index.ts",

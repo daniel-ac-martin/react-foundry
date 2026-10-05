@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/app-plop-pack",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Generators for use within applications and prototypes.",
   "type": "module",
   "main": "src/index.js",
