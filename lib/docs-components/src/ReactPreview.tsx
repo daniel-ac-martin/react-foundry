@@ -28,7 +28,7 @@ const renderToMarkup = (node: ReactNode): string => {
   return renderToStaticMarkup(dummyWrap);
 };
 
-const renderToSource = (node: ReactNode): string => (
+export const renderToSource = (node: ReactNode): string => (
   reactElementToJSXString(node)
     .replace(/\s+[^=]+={undefined}/, '') // There's no need to print undefined props
 );
