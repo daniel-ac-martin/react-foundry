@@ -29,8 +29,11 @@ const renderToMarkup = (node: ReactNode): string => {
 };
 
 export const renderToSource = (node: ReactNode): string => (
-  reactElementToJSXString(node)
-    .replace(/\s+[^=]+={undefined}/, '') // There's no need to print undefined props
+  reactElementToJSXString(node, {
+    filterProps: (value: any) => value !== undefined, // Remove undefined props
+    useBooleanShorthandSyntax: false // Keep props set to false
+  })
+    .replace(/(\s+)([A-Za-z0-9_$-]+)=\{true\}/g, '$1$2') // Reinstate shorthand syntax for {true} props
 );
 
 const commonFormatOptions = {
