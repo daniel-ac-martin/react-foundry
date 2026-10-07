@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/docs-components",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "React components for use in documentation.",
   "type": "module",
   "main": "src/index.ts",

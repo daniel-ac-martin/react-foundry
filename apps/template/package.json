@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/template",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "A starting point for writing a new React Foundry application.",
   "private": true,
   "type": "module",
@@ -44,7 +44,7 @@
     "serverless-http": "4.0.0"
   },
   "peerDependencies": {
-    "@react-foundry/user-info": "^0.6.1"
+    "@react-foundry/user-info": "^0.6.2"
   },
   "devDependencies": {
     "@react-foundry/app-plop-pack": "workspace:*",

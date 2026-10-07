@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/component-helpers",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Helper functions for writing components.",
   "type": "module",
   "main": "src/index.ts",
