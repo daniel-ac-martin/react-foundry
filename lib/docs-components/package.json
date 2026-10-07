@@ -42,7 +42,7 @@
     "prettier": "^3.9.9",
     "prismjs": "^1.30.0",
     "prismjs-github": "^1.0.0",
-    "react-element-to-jsx-string": "^17.0.1",
+    "react-element-to-jsx-string": "^18.0.0",
     "storybook": "^10.6.1"
   },
   "devDependencies": {
