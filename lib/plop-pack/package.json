@@ -27,7 +27,7 @@
     "minimist": "^1.2.8",
     "node-plop": "^0.32.3",
     "plop": "^4.0.5",
-    "resolve": "^1.22.12",
+    "resolve": "^1.22.13",
     "shelljs": "^0.10.0"
   },
   "devDependencies": {
