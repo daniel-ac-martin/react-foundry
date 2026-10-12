@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@fastify/error": "^4.2.0",
-    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/rate-limit": "^11.2.1",
     "@react-foundry/fastify-session": "workspace:^",
     "fastify-plugin": "^6.0.0",
     "openid-client": "^5.7.1"

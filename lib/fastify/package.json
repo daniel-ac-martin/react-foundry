@@ -34,7 +34,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/rate-limit": "^11.2.1",
     "@react-foundry/fastify-auth": "workspace:^",
     "@react-foundry/fastify-dev-logger": "workspace:^",
     "@react-foundry/fastify-harden": "workspace:^",
