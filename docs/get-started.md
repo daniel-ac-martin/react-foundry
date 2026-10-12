@@ -84,12 +84,11 @@ wish to use something else.) The others will require some work to set
 them up.
 
 
-#### 6.1. Automatic management of lock-file
+#### 6.1. Writing back to your repository
 
-We provide a workflow for automatically managing the PNPM lock-file in CI.
-However, for this to work you must provide a GitHub Personal Access Token (PAT)
-with the required permissions. (This token is required in order to work with
-protected branches.)
+Two of the workflows we provide push to your `master` branch: one keeps the
+PNPM lock-file up to date, and 'Publish packages' (below) commits and tags each
+new version. Both need a GitHub Personal Access Token (PAT) in order to do so.
 
 1. [Create a 'Fine-grained personal access token' in GitHub]
 2. Ensure that the token has access to your repository (you can limit it to just that)
@@ -98,13 +97,25 @@ protected branches.)
 5. Create a secret in GitHub called `PAT` with the value set to the one provided
    to you by GitHub.
 
+A PAT is needed here rather than the built-in `GITHUB_TOKEN` because GitHub
+Actions cannot be granted an exemption from a ruleset: it does not appear in the
+bypass list. So, if you protect your `master` branch (see step 8) you must also
+ensure that the owner of the token is allowed to bypass that protection, or
+these workflows will be refused when they push.
+
+Note that fine-grained tokens expire. When yours does, both workflows will begin
+to fail at the point where they push.
+
 
 #### 6.2. Publishing to NPM
 
 We provide a workflow, called 'Publish packages', for publishing your libraries
 and components to NPM.
 
-In order for this to work you must provide an access token:
+This workflow also requires the `PAT` from the previous section, as it commits
+and tags each new version and pushes both to `master`.
+
+In order for this to work you must also provide an access token for NPM:
 
 1. Sign up and [log in to NPM]
 2. Click your avatar on the right-hand side
@@ -128,6 +139,11 @@ following steps:
 
 The workflow will then start to run, and your should follow it to ensure that it
 succeeds.
+
+Note that your packages are published to NPM *before* the version commit and
+tag are pushed. Should the push fail (because the token has expired, or because
+it cannot bypass your branch protection) the packages will already have been
+published, and you will need to push the commit and the tag by hand.
 
 
 #### 6.3. Chromatic
@@ -221,6 +237,10 @@ mandatory prior to merging:
 - 'Unit test'
 - 'Build' (which ensures your apps can be built)
 - 'UI Tests' & 'UI Review' (which protect you against visual regressions)
+
+If you do, remember that the workflows described in step 6 push to `master`
+themselves. Add the owner of your `PAT` to the bypass list for your ruleset
+('Repository admin' will do, if that is you), or those pushes will be rejected.
 
 
 [Components]: ./components
