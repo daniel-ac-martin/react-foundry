@@ -44,6 +44,6 @@
   "dependencies": {
     "cookie": "^2.0.1",
     "cryptr": "^6.4.0",
-    "fastify-plugin": "^6.0.0"
+    "fastify-plugin": "^6.0.1"
   }
 }
