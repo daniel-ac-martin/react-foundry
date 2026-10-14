@@ -764,8 +764,8 @@ importers:
   lib/fastify-auth:
     dependencies:
       '@fastify/error':
-        specifier: ^4.2.0
-        version: 4.2.0
+        specifier: ^4.2.1
+        version: 4.2.1
       '@fastify/rate-limit':
         specifier: ^11.2.1
         version: 11.2.1
@@ -2213,6 +2213,9 @@ packages:
 
   '@fastify/error@4.2.0':
     resolution: {integrity: sha512-RSo3sVDXfHskiBZKBPRgnQTtIqpi/7zhJOEmAxCiBcM7d0uwdGdxLlsCaLzGs8v8NnxIRlfG0N51p5yFaOentQ==}
+
+  '@fastify/error@4.2.1':
+    resolution: {integrity: sha512-MYBumuIwP+5MIpXSyKm6/o1Eigcoij186lWUssX3LH5U8KWqU0ktZhzC4CErIX9EJeQeRGI+zJZQWakBlFbUcg==}
 
   '@fastify/fast-json-stringify-compiler@5.0.3':
     resolution: {integrity: sha512-uik7yYHkLr6fxd8hJSZ8c+xF4WafPK+XzneQDPU+D10r5X19GW8lJcom2YijX2+qtFF1ENJlHXKFM9ouXNJYgQ==}
@@ -8587,6 +8590,8 @@ snapshots:
       fast-uri: 3.1.0
 
   '@fastify/error@4.2.0': {}
+
+  '@fastify/error@4.2.1': {}
 
   '@fastify/fast-json-stringify-compiler@5.0.3':
     dependencies:
