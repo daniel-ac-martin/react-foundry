@@ -4,11 +4,11 @@ import { ComponentType, Context, createContext, useContext } from 'react';
 
 export type DocsContextValue = {
   args: object
-  component?: ComponentType<unknown>
-  description?: string
+  component?: ComponentType<unknown> | undefined
+  description?: string | undefined
   meta: Meta
   stories: Record<string, object>
-  title?: string
+  title?: string | undefined
 };
 
 const defaultValue: DocsContextValue = {
