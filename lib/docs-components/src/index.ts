@@ -9,8 +9,8 @@ import type {
 } from '@storybook/addon-docs/blocks';
 
 export type MetaProps = ComponentProps<typeof _Meta> & {
-  title?: string
-  of?: Record<string, object>
+  title?: string | undefined
+  of?: Record<string, object> | undefined
 };
 
 export const Meta: FC<MetaProps> = ({
@@ -33,8 +33,8 @@ export const Meta: FC<MetaProps> = ({
 const NullComponent: FC<any> = (_) => null;
 
 export type CanvasProps = ComponentProps<typeof _Canvas> & {
-  children?: ReactNode
-  of?: object
+  children?: ReactNode | undefined
+  of?: object | undefined
 };
 
 export const Canvas: FC<CanvasProps> = ({ of: _of }) => {

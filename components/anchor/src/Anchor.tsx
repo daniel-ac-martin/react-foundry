@@ -11,11 +11,11 @@ import '../assets/Anchor.scss';
 export type ActiveMatching = 'strict' | 'loose';
 
 export type AnchorProps = StandardProps & AnchorHTMLAttributes<HTMLAnchorElement> & {
-  children?: ReactNode
+  children?: ReactNode | undefined
   /** Whether to consider the anchor active when on a sub-page (loose) or only on the exact page in the href (strict) */
-  activeMatching?: ActiveMatching
+  activeMatching?: ActiveMatching | undefined
   /** Whether to force the link to be treated as external (useful for internal links that are NOT handled by the application) */
-  forceExternal?: boolean
+  forceExternal?: boolean | undefined
 };
 
 const supportedProtocols = [

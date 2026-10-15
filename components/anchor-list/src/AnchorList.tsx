@@ -9,17 +9,17 @@ import '../assets/AnchorList.scss';
 
 export type Anchor = AnchorProps & {
   /** Text of the link */
-  text?: string
+  text?: string | undefined
 };
 
 export type Item = Anchor & {
   /** Subitems */
-  items?: Item[]
+  items?: Item[] | undefined
 };
 
 export type AnchorListProps = StandardProps & {
   /** List component to use  */
-  as?: ComponentType<HTMLProps<HTMLOListElement | HTMLUListElement>> | 'ol' | 'ul'
+  as?: ComponentType<HTMLProps<HTMLOListElement | HTMLUListElement>> | 'ol' | 'ul' | undefined
   /** List of links to choose from */
   items: Item[]
 };

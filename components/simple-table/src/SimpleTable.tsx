@@ -4,7 +4,7 @@ import { StandardProps, classBuilder } from '@react-foundry/component-helpers';
 import '../assets/SimpleTable.scss';
 
 export type SimpleTableProps<T> = StandardProps & HTMLAttributes<HTMLTableElement> & {
-  caption?: string | ReactNode
+  caption?: string | ReactNode | undefined
   data: T[]
   headings: T
   keys: (keyof T)[]

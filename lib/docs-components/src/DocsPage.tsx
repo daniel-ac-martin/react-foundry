@@ -5,14 +5,14 @@ import { DocsContext } from './context';
 export type StoriesModule = Record<string, unknown> & {
   default: ComponentType<unknown>
   meta?: {
-    component?: ComponentType<unknown>
-    includeStories?: string[]
+    component?: ComponentType<unknown> | undefined
+    includeStories?: string[] | undefined
     parameters?: {
-      description?: string
-      image?: string
-    }
-    title?: string
-  }
+      description?: string | undefined
+      image?: string | undefined
+    } | undefined
+    title?: string | undefined
+  } | undefined
 };
 
 export type DocsPageProps = StandardProps & {
