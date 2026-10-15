@@ -2,13 +2,13 @@ type Modifiers = string | (string | undefined)[];
 
 export type StandardProps = {
   /** 'id' attribute to place on the base HTML element */
-  id?: string
+  id?: string | undefined
   /** Block name override in BEM style classes applied to all elements */
-  classBlock?: string
+  classBlock?: string | undefined
   /** BEM style modifiers to apply to the base HTML element */
-  classModifiers?: Modifiers
+  classModifiers?: Modifiers | undefined
   /** Extra classes to apply to the base HTML element */
-  className?: string
+  className?: string | undefined
 };
 
 export type ClassBuilder = (element?: string, elementModifiers?: Modifiers, extra2?: string) => string | undefined;

@@ -16,12 +16,12 @@ const {
 
 export interface IFieldContext {
   name: string
-  prettyName?: string
+  prettyName?: string | undefined
 };
 
 type ReadyValidatorFn = (field: IFieldContext) => (value: string) => string | undefined;
 export type ReadyValidator = ReadyValidatorFn & {
-  priority?: number
+  priority?: number | undefined
 };
 export type Validator = (msg?: string) => ReadyValidator;
 

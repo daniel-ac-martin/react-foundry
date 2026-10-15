@@ -45,9 +45,9 @@ type Method = 'get' | 'post';
 
 export type FormProps<T> = StandardProps & {
   action: string
-  children?: ReactNode
-  debug?: boolean
-  initialValues?: T
+  children?: ReactNode | undefined
+  debug?: boolean | undefined
+  initialValues?: T | undefined
   method: Method
   validate?: (values: T) => T
 };

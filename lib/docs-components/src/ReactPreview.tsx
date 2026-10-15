@@ -110,11 +110,11 @@ const ReactCode: FC<CodeWithAltProps> = ({
 };
 
 export type ReactPreviewProps = Omit<StandardProps, 'id'> & {
-  children?: ReactNode
+  children?: ReactNode | undefined
   /** 'id' attribute to place on the base HTML element */
   id: string
   /** Source code of the story */
-  source?: string
+  source?: string | undefined
 };
 
 export const ReactPreview: FC<ReactPreviewProps> = ({

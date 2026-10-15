@@ -19,9 +19,9 @@ interface IFieldStatus {
   inScope: boolean
   visible: boolean
   seen: boolean
-  preValidate?: PreValidateFn
-  validate?: ValidateFn
-  format?: FormatFn
+  preValidate?: PreValidateFn | undefined
+  validate?: ValidateFn | undefined
+  format?: FormatFn | undefined
 }
 
 interface IFieldStatusMap {
