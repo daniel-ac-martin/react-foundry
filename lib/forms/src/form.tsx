@@ -5,7 +5,7 @@ const prettyPrint = (obj: object) => JSON.stringify(obj, undefined, 2);
 
 export type FormProps = HTMLProps<HTMLFormElement> & FormikProps<any> & {
   children?: ReactNode
-  debug?: boolean
+  debug?: boolean | undefined
 };
 
 export const Form: FC<FormProps> = ({

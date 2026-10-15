@@ -9,16 +9,16 @@ import { ReadyValidator } from './validators';
 
 export type FieldProps = {
   name: string
-  prettyName?: string
-  validators?: any[]
+  prettyName?: string | undefined
+  validators?: any[] | undefined
 };
 
 export type ControlProps = {
-  disabled?: boolean
+  disabled?: boolean | undefined
 };
 
 type RawControlProps = {
-  disabled?: boolean
+  disabled?: boolean | undefined
 };
 
 type RawFieldProps = RawControlProps & {
@@ -27,7 +27,7 @@ type RawFieldProps = RawControlProps & {
 };
 
 export type RawField<A> = ComponentType<A> & {
-  format?: FormatFn
+  format?: FormatFn | undefined
 };
 
 interface IPreValidators {
