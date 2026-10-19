@@ -1,6 +1,6 @@
 import type { Route } from "./+types/search";
 import { Form } from '@react-foundry/components';
-import { useLocation } from '@react-foundry/router';
+import { Link, useLocation } from '@react-foundry/router';
 import { siteTitle } from '../config';
 
 export const title = 'Search';
@@ -29,6 +29,10 @@ export default function Search() {
             <Form.Input type="text" name="q" />
             <Form.Submit>Search</Form.Submit>
           </Form>
+          <p>
+            {/* These update the results in place, rather than loading a new page */}
+            Try searching for <Link to="?q=react" preventScrollReset>react</Link> or <Link to="?q=foundry" preventScrollReset>foundry</Link>.
+          </p>
           <h2>Result</h2>
         </div>
       </div>
