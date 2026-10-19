@@ -1,15 +1,9 @@
+'use client';
+
 import type { CSSProperties, FC } from 'react';
-import { createElement as h, useEffect, useMemo, useRef, useState } from 'react';
-
-export type RouteChange = {
-  key: string,
-  pathname: string,
-  search: string,
-  hash: string,
-  preventScrollReset: boolean
-};
-
-export type UseRouteChange = () => RouteChange;
+import { createElement as h, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { UNSAFE_DataRouterStateContext, useLocation } from 'react-router';
+import { useIsMounted } from '@react-foundry/client-component-helpers';
 
 const visuallyHidden: CSSProperties = {
   position: 'absolute',
@@ -68,10 +62,13 @@ const nextMessage = (title: string, previous: string): string => (
  *   rather than a new one; or
  * - something else, such as an `autoFocus` field, has already moved focus.
  */
-export const makeRouteAnnouncer = (useRouteChange: UseRouteChange): FC => () => {
-  const { key, pathname, search, hash, preventScrollReset } = useRouteChange();
+export const RouteAnnouncer: FC = () => {
+  const { key, pathname, search, hash } = useLocation();
+  // Only available in data routers; this is what <ScrollRestoration> uses
+  const routerState = useContext(UNSAFE_DataRouterStateContext);
+  const preventScrollReset = !!routerState?.preventScrollReset;
   const previous = useRef({ key, pathname, search });
-  const [ mounted, setMounted ] = useState(false);
+  const isMounted = useIsMounted();
   const [ message, setMessage ] = useState('');
   // Record what had focus before the new page is committed to the DOM, so that
   // we can tell whether anything moved focus while rendering it.
@@ -79,11 +76,6 @@ export const makeRouteAnnouncer = (useRouteChange: UseRouteChange): FC => () => 
     () => typeof document === 'undefined' ? null : document.activeElement,
     [ key ]
   );
-
-  // We only render the live region in the browser, where React applies its
-  // styles via the CSSOM, as a strict Content Security Policy would block an
-  // inline style attribute in server-rendered markup.
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const prev = previous.current;
@@ -123,7 +115,10 @@ export const makeRouteAnnouncer = (useRouteChange: UseRouteChange): FC => () => 
     setMessage(prevMessage => nextMessage(title, prevMessage));
   }, [ key ]);
 
-  return mounted && h('div', {
+  // We only render the live region in the browser, where React applies its
+  // styles via the CSSOM, as a strict Content Security Policy would block an
+  // inline style attribute in server-rendered markup.
+  return isMounted && h('div', {
     'aria-live': 'assertive',
     'aria-atomic': true,
     style: visuallyHidden

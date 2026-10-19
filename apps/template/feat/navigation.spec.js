@@ -95,7 +95,10 @@ describe('Client-side navigation', () => {
   describe('when following a link to another part of the same page', () => {
     before(() => {
       cy.visitReady('/sitemap');
-      cy.contains('a', 'Skip to subpages').focus().click();
+      // Links within the page only become router links once hydrated, so we
+      // wait for that rather than click the server-rendered one as it is
+      // replaced
+      cy.contains('a[data-discover]', 'Skip to subpages').focus().click();
     });
 
     it('updates the URL', () => {
