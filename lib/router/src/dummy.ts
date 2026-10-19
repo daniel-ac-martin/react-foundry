@@ -20,6 +20,7 @@ const _useLocation: _UseLocation = () => ({
 });
 export const useLocation: UseLocation = makeUseLocation(_useLocation);
 export const useIsActive: UseIsActive = makeUseIsActive(useLocation);
+export const RouteAnnouncer: FC = () => null;
 export const useNavigate: UseNavigate = () => () => undefined;
 export const useParams: UseParams = () => ({});
 export const Link: FC<LinkProps> = ({
