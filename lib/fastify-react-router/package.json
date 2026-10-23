@@ -40,7 +40,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@fastify/middie": "^9.3.5",
+    "@fastify/middie": "^9.3.6",
     "@fastify/static": "^10.1.6",
     "@react-foundry/react-router-context": "workspace:^",
     "@react-router/node": "^8.4.0",
@@ -49,7 +49,7 @@
   "devDependencies": {
     "@react-foundry/fastify-auth": "workspace:*",
     "@react-foundry/fastify-harden": "workspace:*",
-    "fastify": "5.12.5",
+    "fastify": "5.12.7",
     "jest": "30.5.2",
     "jest-environment-jsdom": "30.5.2",
     "react-router": "8.4.0",
