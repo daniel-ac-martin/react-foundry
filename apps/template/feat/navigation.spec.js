@@ -1,10 +1,12 @@
-// Note: We can't check that focus moves to the start of the document in these
-// tests, as Cypress's replacement for HTMLElement.focus() ignores calls on
-// <body>. This is covered by the unit tests in @react-foundry/router instead.
+// Note: Every page here has a main heading, so focus always moves to a heading
+// and nothing is announced. We can't check that focus moves to the start of the
+// document (and the title is announced) on pages without one, as Cypress's
+// replacement for HTMLElement.focus() ignores calls on <body>. This is covered
+// by the unit tests in @react-foundry/router instead.
 
-const announces = title => {
-  it(`announces '${title}'`, () => {
-    cy.get('[aria-live]').invoke('text').should('match', new RegExp(`^${title} - .* ?$`));
+const focusesHeading = () => {
+  it('moves focus to the main heading', () => {
+    cy.focused().should('match', 'h1');
   });
 };
 
@@ -25,7 +27,8 @@ describe('Client-side navigation', () => {
       cy.location('pathname').should('eq', '/forms');
     });
 
-    announces('Forms');
+    focusesHeading();
+    announcesNothing();
   });
 
   describe('when following a link to a page that shares a layout', () => {
@@ -38,7 +41,8 @@ describe('Client-side navigation', () => {
       cy.location('pathname').should('eq', '/sub/two');
     });
 
-    announces('Two');
+    focusesHeading();
+    announcesNothing();
   });
 
   describe('when submitting a search', () => {
@@ -53,8 +57,8 @@ describe('Client-side navigation', () => {
       cy.location('search').should('eq', '?q=cats');
     });
 
-    // The title is the same as before, but it should still be announced
-    announces('Search');
+    focusesHeading();
+    announcesNothing();
   });
 
   describe('when following a link that preserves the scroll position', () => {
@@ -89,7 +93,7 @@ describe('Client-side navigation', () => {
       cy.focused().should('have.id', 'subpages');
     });
 
-    announces('Sitemap');
+    announcesNothing();
   });
 
   describe('when following a link to another part of the same page', () => {

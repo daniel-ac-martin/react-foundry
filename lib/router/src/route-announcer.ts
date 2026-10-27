@@ -26,10 +26,31 @@ const getHashTarget = (hash: string): HTMLElement | null => {
   }
 };
 
+// Where a screen reader user would want to start reading a new page. User
+// testing by Gatsby found that focusing the main heading after a client-side
+// navigation worked better for screen reader users than going back to the top
+// of the page, which made them listen to the header and navigation again:
+// https://www.gatsbyjs.com/blog/2019-07-11-user-testing-accessible-client-routing/
+// Failing that we use the main content, then the first main heading on the page
+// (which may not be in the content, but usually is), and failing that the
+// start of the document, as a full page load would.
+const getStartOfContent = (): HTMLElement => {
+  const main = document.querySelector('main');
+
+  return (
+    main?.querySelector('h1') ||
+    main ||
+    document.querySelector('h1') ||
+    document.body
+  );
+};
+
+const isHeading = (el: HTMLElement): boolean => /^H[1-6]$/.test(el.tagName);
+
 // Moves focus to an element that may not normally be focusable, without
 // scrolling, in the same way as the GOV.UK skip link. This also moves the
 // 'sequential focus navigation starting point', so that the next Tab press
-// starts from here, as it would after a full page load.
+// starts from here.
 const moveFocus = (el: HTMLElement): void => {
   if (!el.hasAttribute('tabindex')) {
     el.setAttribute('tabindex', '-1');
@@ -50,10 +71,12 @@ const nextMessage = (title: string, previous: string): string => (
 /**
  * Makes client-side navigation behave more like a full page load for users of
  * assistive technology. After each navigation (but not the first render) it:
- * - moves focus back to the start of the document (or to the element
- *   targeted by the URL's hash), so that screen readers and keyboard users
- *   start from the top of the new page; and
- * - announces the new page's title via a live region.
+ * - moves focus to the element targeted by the URL's hash or, failing that,
+ *   to the start of the content (the main heading, the main element, any
+ *   main heading or the start of the document), so that screen readers and
+ *   keyboard users start from the new content; and
+ * - announces the new page's title via a (polite) live region, unless focus
+ *   moved to a heading, which screen readers will read out instead.
  *
  * It leaves things alone when:
  * - only the hash has changed (the browser handles in-page links);
@@ -98,11 +121,21 @@ export const RouteAnnouncer: FC = () => {
 
     const target = getHashTarget(hash);
 
-    if (target) {
-      moveFocus(target);
-    } else if (!preventScrollReset) {
-      moveFocus(document.body);
-    } else {
+    if (!target && preventScrollReset) {
+      return;
+    }
+
+    const focusTarget = target || getStartOfContent();
+
+    // If React Router adopts the Navigation API, the browser's own focus reset
+    // (to <body>) could undo this, unless it uses `focusReset: 'manual'`.
+    moveFocus(focusTarget);
+
+    // Screen readers read out a heading when it receives focus, which tells
+    // the user where they now are, so announcing the title as well would only
+    // repeat it. (And it would be read out after the heading, rather than
+    // before it, as it would be after a full page load.)
+    if (isHeading(focusTarget)) {
       return;
     }
 
@@ -118,8 +151,10 @@ export const RouteAnnouncer: FC = () => {
   // We only render the live region in the browser, where React applies its
   // styles via the CSSOM, as a strict Content Security Policy would block an
   // inline style attribute in server-rendered markup.
+  // Polite, so that the announcement does not interrupt the screen reader
+  // reading out the element that we moved focus to.
   return isMounted && h('div', {
-    'aria-live': 'assertive',
+    'aria-live': 'polite',
     'aria-atomic': true,
     style: visuallyHidden
   }, message);

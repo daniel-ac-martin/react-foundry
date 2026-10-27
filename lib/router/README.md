@@ -31,8 +31,8 @@ keyboard focus starts again from the top of the page. Client-side navigation
 does none of this by default; focus stays on the link that was followed and
 nothing is announced.
 
-`RouteAnnouncer` restores this behaviour. Render it once, inside your router,
-alongside `<ScrollRestoration />`:
+`RouteAnnouncer` restores this behaviour, and goes a little further. Render it
+once, inside your router, alongside `<ScrollRestoration />`:
 
 ```jsx
 import { RouteAnnouncer } from '@react-foundry/router';
@@ -47,8 +47,29 @@ import { RouteAnnouncer } from '@react-foundry/router';
 ```
 
 After each navigation (but not on the initial page load) it moves focus to the
-start of the document, or to the element targeted by the URL's hash, and
-announces the new page's title via a live region.
+first of the following that it finds:
+1. the element targeted by the URL's hash;
+2. the first `<h1>` inside `<main>`;
+3. `<main>`;
+4. the first `<h1>` anywhere in the document;
+5. the start of the document, as a full page load would.
+
+Screen readers read out a heading when it receives focus, so that is enough to
+tell the user where they are. Otherwise, it also announces the new page's title
+via a (polite) live region.
+
+Moving focus to the main heading means that screen reader users start reading
+the new content straight away, rather than hearing the header and navigation
+again. User testing by Gatsby found that this worked well; see
+[What we learned from user testing of accessible client-side routing
+techniques](https://www.gatsbyjs.com/blog/2019-07-11-user-testing-accessible-client-routing/).
+One consequence is that the next press of Tab moves to the first focusable
+element after the heading, skipping any skip link and the site navigation.
+
+This works best when every page has a `<main>` element containing an `<h1>`.
+Without `<main>` we cannot tell whether the first `<h1>` is the page's heading,
+so if, for example, your site's header puts the site name in an `<h1>`, focus
+will land there instead.
 
 It does nothing when:
 - only the URL's hash changed (e.g. a link within the page);
