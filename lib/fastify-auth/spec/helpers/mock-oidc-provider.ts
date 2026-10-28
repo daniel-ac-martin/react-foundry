@@ -35,6 +35,16 @@ type Grant = {
 
 const base64url = (v: Buffer | string) => Buffer.from(v).toString('base64url');
 
+// Client credentials are form-urlencoded before being base64 encoded
+// See: https://www.rfc-editor.org/rfc/rfc6749#section-2.3.1
+const formUrlDecode = (v: string) => decodeURIComponent(v.replace(/\+/g, ' '));
+
+export const basicCredentials = (authorization?: string) => {
+  const match = authorization?.match(/^Basic (.+)$/);
+
+  return match && Buffer.from(match[1], 'base64').toString().split(':').map(formUrlDecode);
+};
+
 export class MockOIDCProvider {
   readonly clientId: string;
   readonly clientSecret?: string;
@@ -183,11 +193,9 @@ export class MockOIDCProvider {
 
   private clientAuthenticated(authorization: string | undefined, params: Record<string, string>) {
     if (this.clientSecret) {
-      const expected = 'Basic ' + Buffer.from(
-        `${encodeURIComponent(this.clientId)}:${encodeURIComponent(this.clientSecret)}`
-      ).toString('base64');
+      const [ id, secret ] = basicCredentials(authorization) || [];
 
-      return authorization === expected;
+      return id === this.clientId && secret === this.clientSecret;
     } else {
       return !authorization && params.client_id === this.clientId;
     }
@@ -227,7 +235,7 @@ export class MockOIDCProvider {
     return {
       access_token: accessToken,
       token_type: 'Bearer',
-      expires_in: this.accessTokenTTL,
+      expires_in: Math.max(this.accessTokenTTL, 0),
       refresh_token: refreshToken,
       id_token: idToken,
       scope: 'openid'

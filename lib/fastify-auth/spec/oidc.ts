@@ -7,7 +7,7 @@ import type { MockUser } from './helpers/mock-oidc-provider.js';
 
 import Fastify from 'fastify';
 import { AuthMethod, fastifyAuth } from '../src/index.js';
-import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
+import { MockOIDCProvider, basicCredentials } from './helpers/mock-oidc-provider.js';
 
 const clientId = 'my-client';
 const clientSecret = 'my-client-secret';
@@ -150,7 +150,7 @@ describe('OIDC authentication', () => {
 
         const [ { authorization, params } ] = op.tokenRequests;
 
-        expect(authorization).toBe('Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'));
+        expect(basicCredentials(authorization)).toEqual([ clientId, clientSecret ]);
         expect(params.grant_type).toBe('authorization_code');
         expect(params.redirect_uri).toBe(`${redirectUri}/auth/callback`);
         expect(params.code_verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
@@ -263,7 +263,7 @@ describe('OIDC authentication', () => {
 
         const { authorization, params } = op.tokenRequests[before];
 
-        expect(authorization).toBe('Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'));
+        expect(basicCredentials(authorization)).toEqual([ clientId, clientSecret ]);
         expect(params.grant_type).toBe('refresh_token');
         expect(user).toMatchObject({
           username: 'alice',
