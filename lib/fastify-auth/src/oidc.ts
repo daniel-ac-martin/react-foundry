@@ -1,6 +1,21 @@
 import type { AuthBagger, Deserialize, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
-import { Client, Issuer, custom, generators } from 'openid-client';
+import type { Configuration, DiscoveryRequestOptions } from 'openid-client';
+
+import {
+  ClientSecretBasic,
+  None,
+  allowInsecureRequests,
+  authorizationCodeGrant,
+  buildAuthorizationUrl,
+  buildEndSessionUrl,
+  calculatePKCECodeChallenge,
+  discovery,
+  fetchUserInfo,
+  randomPKCECodeVerifier,
+  randomState,
+  refreshTokenGrant
+} from 'openid-client';
 import { createError } from '@fastify/error';
 import { id } from './common.js';
 
@@ -50,28 +65,57 @@ const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
 );
 
+const withoutTrailingSlash = (v: string): string => v.replace(/\/$/, '');
+
+const discover = async (
+  issuer: string,
+  clientId: string,
+  clientSecret?: string
+): Promise<Configuration> => {
+  const server = new URL(issuer);
+  const options: DiscoveryRequestOptions = {
+    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
+    execute: (
+      server.protocol === 'http:'
+        ? [ allowInsecureRequests ]
+        : []
+    ),
+    timeout: 5 // seconds
+  };
+  const clientAuth = (
+    clientSecret
+      ? ClientSecretBasic(clientSecret)
+      : None()
+  );
+  const attempt = (v: URL) => discovery(v, clientId, undefined, clientAuth, options);
+
+  try {
+    return await attempt(server);
+  } catch (err: any) {
+    // The issuer must match exactly, but tolerate a trailing slash in our
+    // configuration (or the lack of one)
+    const discovered: unknown = (
+      err?.code === 'OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED'
+        && err.cause?.attribute === 'issuer'
+        && err.cause.body?.issuer
+    );
+
+    if (typeof discovered === 'string' && withoutTrailingSlash(discovered) === withoutTrailingSlash(server.href)) {
+      return attempt(new URL(discovered));
+    } else {
+      throw err;
+    }
+  }
+};
+
 export const oidc: AuthBagger<Options> = async ({
   clientId,
   clientSecret,
   issuer,
   redirectUri: _redirectUri
 }, fullSessions) => {
-  custom.setHttpOptionsDefaults({
-    timeout: 5000,
-  });
-
   const redirectUri = _redirectUri + '/auth/callback'
-  const iss = await Issuer.discover(issuer);
-  const client = new iss.Client({
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uris: [ redirectUri ],
-    token_endpoint_auth_method: (
-      clientSecret
-        ? 'client_secret_basic'
-        : 'none'
-    )
-  });
+  const config = await discover(issuer, clientId, clientSecret);
 
   const authInfo = (accessToken?: string, refreshToken?: string, idToken?: string, userinfo: object = {}): AuthInfo => {
     const extractJWTClaims = (token?: string) => token && JSON.parse(
@@ -201,7 +245,7 @@ export const oidc: AuthBagger<Options> = async ({
     } else if (!user.accessTokenValid && refreshToken && user.refreshTokenValid) {
       // The access token has expired, let's try to get a new one
       try {
-        const tokenSet = await client.refresh(refreshToken);
+        const tokenSet = await refreshTokenGrant(config, refreshToken);
 
         req.log.info('Obtained new access token');
         const newUser: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo || {});
@@ -224,10 +268,11 @@ export const oidc: AuthBagger<Options> = async ({
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
   const authenticate: SubRouteHandlerMethod = async (req, reply) => {
-    const codeVerifier = generators.codeVerifier();
-    const codeChallenge = generators.codeChallenge(codeVerifier);
-    const state = generators.state();
-    const redirectTo = client.authorizationUrl({
+    const codeVerifier = randomPKCECodeVerifier();
+    const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
+    const state = randomState();
+    const redirectTo = buildAuthorizationUrl(config, {
+      redirect_uri: redirectUri,
       // scope: 'openid email profile',
       scope: 'openid',
       state,
@@ -241,7 +286,7 @@ export const oidc: AuthBagger<Options> = async ({
 
     req.session.oidc = sessionObj;
 
-    return reply.redirect(redirectTo);
+    return reply.redirect(redirectTo.href);
   };
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
@@ -258,13 +303,16 @@ export const oidc: AuthBagger<Options> = async ({
       throw new BadSession();
     }
 
-    const checks = {
-      code_verifier: codeVerifier,
-      state
-    };
-    const params = client.callbackParams(req.raw);
-    const tokenSet = await client.callback(redirectUri, params, checks);
-    const userinfo = await client.userinfo(tokenSet);
+    // Use our configured URL rather than trusting the Host header
+    const currentUrl = new URL(redirectUri);
+    currentUrl.search = new URL(req.url, currentUrl).search;
+
+    const tokenSet = await authorizationCodeGrant(config, currentUrl, {
+      expectedState: state,
+      idTokenExpected: true,
+      pkceCodeVerifier: codeVerifier
+    });
+    const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
     const user: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo);
 
     if (user.username) {
@@ -273,11 +321,11 @@ export const oidc: AuthBagger<Options> = async ({
   };
 
   const terminate: SubRouteHandlerMethod = async (req, reply) => {
-    const redirectTo = client.endSessionUrl({
+    const redirectTo = buildEndSessionUrl(config, {
       post_logout_redirect_uri: _redirectUri
     });
 
-    return reply.redirect(redirectTo);
+    return reply.redirect(redirectTo.href);
   };
 
   return {
