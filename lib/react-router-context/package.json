@@ -37,7 +37,7 @@
     "@react-foundry/types": "workspace:*",
     "jest": "30.5.2",
     "jest-environment-jsdom": "30.5.2",
-    "react-router": "8.4.0",
+    "react-router": "8.5.0",
     "ts-jest": "29.4.15",
     "typescript": "6.0.3"
   }
