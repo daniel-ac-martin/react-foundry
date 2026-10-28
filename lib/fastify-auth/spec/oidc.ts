@@ -387,6 +387,29 @@ describe('OIDC authentication', () => {
     });
   });
 
+  describe('when the issuer is given with a trailing slash', () => {
+    let op: MockOIDCProvider;
+    let app: FastifyInstance;
+
+    beforeAll(async () => {
+      op = new MockOIDCProvider({ clientId, clientSecret });
+      await op.start();
+      app = await createApp(`${op.issuer}/`, { clientSecret });
+    });
+
+    afterAll(async () => {
+      await app.close();
+      await op.stop();
+    });
+
+    it('signs the user in', async () => {
+      const jar: Jar = {};
+      await signIn(app, op, jar);
+
+      expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
+  });
+
   describe('when the issuer cannot be discovered', () => {
     it('fails to start', async () => {
       const op = new MockOIDCProvider({ clientId, clientSecret });
