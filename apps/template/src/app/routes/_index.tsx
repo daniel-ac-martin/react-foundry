@@ -22,6 +22,7 @@ export default function Home() {
       <h1>This is React Foundry!</h1>
       <p>Welcome to React Foundry.</p>
       <A href="/forms">Start</A>
+      <p>Or see the <A href="/sitemap#subpages">subpages in the sitemap</A>.</p>
     </>
   );
 }

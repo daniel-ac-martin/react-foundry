@@ -9,6 +9,7 @@ import {
   useRouteLoaderData
 } from 'react-router';
 import type { Route } from './+types/root';
+import { RouteAnnouncer } from '@react-foundry/router';
 import { cspNonceContext, sanitiseUserInfo, userInfoContext } from '@react-foundry/react-router-context';
 import { UserInfoContext } from '@react-foundry/user-info';
 import { siteTitle } from './config';
@@ -59,6 +60,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <a href={sign.href}>{sign.text}</a>
           </ul>
         </UserInfoContext.Provider>
+        <RouteAnnouncer />
         <ScrollRestoration nonce={nonce} />
         <Scripts nonce={nonce} />
       </body>

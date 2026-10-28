@@ -6,7 +6,7 @@ const path = require('path');
 /** @type {import('@jest/types').Config.InitialOptions} */
 const config = {
   preset: 'ts-jest/presets/js-with-babel',
-  testEnvironment: 'jsdom',
+  testEnvironment: path.resolve(__dirname, '.jest', 'environment.cjs'),
   testEnvironmentOptions: {
     url: 'http://localhost/'
   },

@@ -62,8 +62,9 @@ export default function Sitemap() {
   return (
     <>
       <h1>{title}</h1>
+      <p><A href="#subpages">Skip to subpages</A></p>
       <AnchorList items={pages} />
-      <h2>Subpages</h2>
+      <h2 id="subpages">Subpages</h2>
       <AnchorList items={subPages} />
     </>
   );

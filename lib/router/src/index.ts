@@ -10,6 +10,8 @@ export const needSuspense = false;
 export const useLocation: UseLocation = makeUseLocation(_useLocation);
 export const useIsActive: UseIsActive = makeUseIsActive(useLocation);
 
+export { RouteAnnouncer } from './route-announcer';
+
 export {
   Link,
   useNavigate,
