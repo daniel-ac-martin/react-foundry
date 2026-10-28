@@ -165,7 +165,7 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
 
     if (privacy) {
       fastify.addHook('preHandler', async (req: Request, reply) => {
-        if (!req.user && !whitelist.includes(req.url)) {
+        if (!req.user && !whitelist.includes(req.url.split('?', 1)[0])) {
           const r = await authenticate(req as RequestFull, reply);
 
           if (!callback) {

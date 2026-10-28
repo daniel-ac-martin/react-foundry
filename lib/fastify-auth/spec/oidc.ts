@@ -367,6 +367,24 @@ describe('OIDC authentication', () => {
       expect(res.statusCode).toBe(302);
       expect(location.origin + location.pathname).toBe(`${op.issuer}/protocol/openid-connect/auth`);
     });
+
+    it('lets authenticated users through', async () => {
+      const jar: Jar = {};
+      const start = await app.inject({ method: 'GET', url: '/whoami' });
+      updateJar(jar, start);
+
+      const { code, state } = op.authorize(start.headers.location as string, alice);
+      const callback = await app.inject({
+        method: 'GET',
+        url: `/auth/callback?code=${code}&state=${state}`,
+        cookies: jar
+      });
+      updateJar(jar, callback);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe('/');
+      expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
   });
 
   describe('when the issuer cannot be discovered', () => {
