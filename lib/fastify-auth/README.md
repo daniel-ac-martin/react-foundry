@@ -32,7 +32,7 @@ httpd.register(fastifyAuth, {
     }
   },
   method: AuthMethod.OIDC,
-  issuer: 'https://keycloak/realms/my-realm/', // Change this to the URL for your OIDC provider
+  issuer: 'https://keycloak/realms/my-realm',  // Change this to your OIDC provider's issuer (exactly as it advertises it)
   clientId: 'my-client',                       // Change this to your client ID
   clientSecret: 'my-client-secret',            // Change this to your client secret
   redirectUri: 'https://my-website/'           // Change this to the base URL that the OIDC provider should redirect back to

@@ -1,6 +1,21 @@
 import type { AuthBagger, Deserialize, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
-import { Client, Issuer, custom, generators } from 'openid-client';
+import type { DiscoveryRequestOptions } from 'openid-client';
+
+import {
+  ClientSecretBasic,
+  None,
+  allowInsecureRequests,
+  authorizationCodeGrant,
+  buildAuthorizationUrl,
+  buildEndSessionUrl,
+  calculatePKCECodeChallenge,
+  discovery,
+  fetchUserInfo,
+  randomPKCECodeVerifier,
+  randomState,
+  refreshTokenGrant
+} from 'openid-client';
 import { createError } from '@fastify/error';
 import { id } from './common.js';
 
@@ -55,23 +70,27 @@ export const oidc: AuthBagger<Options> = async ({
   clientSecret,
   issuer,
   redirectUri: _redirectUri
-}, fullSessions) => {
-  custom.setHttpOptionsDefaults({
-    timeout: 5000,
-  });
-
+}, fullSessions, log) => {
   const redirectUri = _redirectUri + '/auth/callback'
-  const iss = await Issuer.discover(issuer);
-  const client = new iss.Client({
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uris: [ redirectUri ],
-    token_endpoint_auth_method: (
-      clientSecret
-        ? 'client_secret_basic'
-        : 'none'
-    )
-  });
+  const server = new URL(issuer);
+  const execute: DiscoveryRequestOptions['execute'] = [];
+
+  if (server.protocol === 'http:') {
+    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
+    log.warn('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
+    execute.push(allowInsecureRequests);
+  }
+
+  const clientAuth = (
+    clientSecret
+      ? ClientSecretBasic(clientSecret)
+      : None()
+  );
+  const discoveryOptions: DiscoveryRequestOptions = {
+    execute,
+    timeout: 5 // seconds
+  };
+  const config = await discovery(server, clientId, undefined, clientAuth, discoveryOptions);
 
   const authInfo = (accessToken?: string, refreshToken?: string, idToken?: string, userinfo: object = {}): AuthInfo => {
     const extractJWTClaims = (token?: string) => token && JSON.parse(
@@ -201,7 +220,7 @@ export const oidc: AuthBagger<Options> = async ({
     } else if (!user.accessTokenValid && refreshToken && user.refreshTokenValid) {
       // The access token has expired, let's try to get a new one
       try {
-        const tokenSet = await client.refresh(refreshToken);
+        const tokenSet = await refreshTokenGrant(config, refreshToken);
 
         req.log.info('Obtained new access token');
         const newUser: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo || {});
@@ -224,10 +243,11 @@ export const oidc: AuthBagger<Options> = async ({
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
   const authenticate: SubRouteHandlerMethod = async (req, reply) => {
-    const codeVerifier = generators.codeVerifier();
-    const codeChallenge = generators.codeChallenge(codeVerifier);
-    const state = generators.state();
-    const redirectTo = client.authorizationUrl({
+    const codeVerifier = randomPKCECodeVerifier();
+    const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
+    const state = randomState();
+    const redirectTo = buildAuthorizationUrl(config, {
+      redirect_uri: redirectUri,
       // scope: 'openid email profile',
       scope: 'openid',
       state,
@@ -241,7 +261,7 @@ export const oidc: AuthBagger<Options> = async ({
 
     req.session.oidc = sessionObj;
 
-    return reply.redirect(redirectTo);
+    return reply.redirect(redirectTo.href);
   };
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
@@ -258,13 +278,16 @@ export const oidc: AuthBagger<Options> = async ({
       throw new BadSession();
     }
 
-    const checks = {
-      code_verifier: codeVerifier,
-      state
-    };
-    const params = client.callbackParams(req.raw);
-    const tokenSet = await client.callback(redirectUri, params, checks);
-    const userinfo = await client.userinfo(tokenSet);
+    // Use our configured URL rather than trusting the Host header
+    const currentUrl = new URL(redirectUri);
+    currentUrl.search = new URL(req.url, currentUrl).search;
+
+    const tokenSet = await authorizationCodeGrant(config, currentUrl, {
+      expectedState: state,
+      idTokenExpected: true,
+      pkceCodeVerifier: codeVerifier
+    });
+    const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
     const user: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo);
 
     if (user.username) {
@@ -273,11 +296,11 @@ export const oidc: AuthBagger<Options> = async ({
   };
 
   const terminate: SubRouteHandlerMethod = async (req, reply) => {
-    const redirectTo = client.endSessionUrl({
+    const redirectTo = buildEndSessionUrl(config, {
       post_logout_redirect_uri: _redirectUri
     });
 
-    return reply.redirect(redirectTo);
+    return reply.redirect(redirectTo.href);
   };
 
   return {
