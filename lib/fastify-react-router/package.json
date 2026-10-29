@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/fastify-react-router",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "description": "Fastify plugin for React Router.",
   "type": "module",
   "main": "src/index.ts",

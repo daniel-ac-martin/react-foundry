@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/simple-components",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "description": "Simple React Foundry components.",
   "type": "module",
   "main": "src/index.ts",
