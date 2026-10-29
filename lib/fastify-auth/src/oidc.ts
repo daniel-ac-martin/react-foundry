@@ -65,8 +65,6 @@ const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
 );
 
-const withoutTrailingSlash = (v: string): string => v.replace(/\/$/, '');
-
 export const oidc: AuthBagger<Options> = async ({
   clientId,
   clientSecret,
@@ -92,26 +90,7 @@ export const oidc: AuthBagger<Options> = async ({
     execute,
     timeout: 5 // seconds
   };
-  const discover = (v: URL) => discovery(v, clientId, undefined, clientAuth, discoveryOptions);
-  const config = await (async () => {
-    try {
-      return await discover(server);
-    } catch (err: any) {
-      // The issuer must match exactly, but tolerate a trailing slash in our
-      // configuration (or the lack of one)
-      const discovered: unknown = (
-        err?.code === 'OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED'
-          && err.cause?.attribute === 'issuer'
-          && err.cause.body?.issuer
-      );
-
-      if (typeof discovered === 'string' && withoutTrailingSlash(discovered) === withoutTrailingSlash(server.href)) {
-        return discover(new URL(discovered));
-      } else {
-        throw err;
-      }
-    }
-  })();
+  const config = await discovery(server, clientId, undefined, clientAuth, discoveryOptions);
 
   const authInfo = (accessToken?: string, refreshToken?: string, idToken?: string, userinfo: object = {}): AuthInfo => {
     const extractJWTClaims = (token?: string) => token && JSON.parse(
