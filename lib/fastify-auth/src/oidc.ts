@@ -1,6 +1,6 @@
 import type { AuthBagger, Deserialize, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
-import type { Configuration, DiscoveryRequestOptions } from 'openid-client';
+import type { DiscoveryRequestOptions } from 'openid-client';
 
 import {
   ClientSecretBasic,
@@ -67,59 +67,51 @@ const base64UrlDecode = (v: string): string => (
 
 const withoutTrailingSlash = (v: string): string => v.replace(/\/$/, '');
 
-const discover = async (
-  issuer: string,
-  clientId: string,
-  clientSecret?: string
-): Promise<Configuration> => {
-  const server = new URL(issuer);
-  const options: DiscoveryRequestOptions = {
-    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
-    execute: (
-      server.protocol === 'http:'
-        ? [ allowInsecureRequests ]
-        : []
-    ),
-    timeout: 5 // seconds
-  };
-  const clientAuth = (
-    clientSecret
-      ? ClientSecretBasic(clientSecret)
-      : None()
-  );
-  const attempt = (v: URL) => discovery(v, clientId, undefined, clientAuth, options);
-
-  try {
-    return await attempt(server);
-  } catch (err: any) {
-    // The issuer must match exactly, but tolerate a trailing slash in our
-    // configuration (or the lack of one)
-    const discovered: unknown = (
-      err?.code === 'OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED'
-        && err.cause?.attribute === 'issuer'
-        && err.cause.body?.issuer
-    );
-
-    if (typeof discovered === 'string' && withoutTrailingSlash(discovered) === withoutTrailingSlash(server.href)) {
-      return attempt(new URL(discovered));
-    } else {
-      throw err;
-    }
-  }
-};
-
 export const oidc: AuthBagger<Options> = async ({
   clientId,
   clientSecret,
   issuer,
   redirectUri: _redirectUri
 }, fullSessions, log) => {
-  if (new URL(issuer).protocol === 'http:') {
+  const redirectUri = _redirectUri + '/auth/callback'
+  const server = new URL(issuer);
+  const execute: DiscoveryRequestOptions['execute'] = [];
+
+  if (server.protocol === 'http:') {
+    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
     log.warn('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
+    execute.push(allowInsecureRequests);
   }
 
-  const redirectUri = _redirectUri + '/auth/callback'
-  const config = await discover(issuer, clientId, clientSecret);
+  const clientAuth = (
+    clientSecret
+      ? ClientSecretBasic(clientSecret)
+      : None()
+  );
+  const discoveryOptions: DiscoveryRequestOptions = {
+    execute,
+    timeout: 5 // seconds
+  };
+  const discover = (v: URL) => discovery(v, clientId, undefined, clientAuth, discoveryOptions);
+  const config = await (async () => {
+    try {
+      return await discover(server);
+    } catch (err: any) {
+      // The issuer must match exactly, but tolerate a trailing slash in our
+      // configuration (or the lack of one)
+      const discovered: unknown = (
+        err?.code === 'OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED'
+          && err.cause?.attribute === 'issuer'
+          && err.cause.body?.issuer
+      );
+
+      if (typeof discovered === 'string' && withoutTrailingSlash(discovered) === withoutTrailingSlash(server.href)) {
+        return discover(new URL(discovered));
+      } else {
+        throw err;
+      }
+    }
+  })();
 
   const authInfo = (accessToken?: string, refreshToken?: string, idToken?: string, userinfo: object = {}): AuthInfo => {
     const extractJWTClaims = (token?: string) => token && JSON.parse(
