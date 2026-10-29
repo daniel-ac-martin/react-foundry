@@ -8,6 +8,7 @@ import {
   ScrollRestoration,
 } from "react-router";
 import { A, AnchorList } from '@react-foundry/components';
+import { RouteAnnouncer } from '@react-foundry/router';
 
 import type { Route } from "./+types/root";
 import "./app.scss";
@@ -47,6 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
         <A href="/feedback">Provide feedback</A>
         {children}
+        <RouteAnnouncer />
         <ScrollRestoration />
         <Scripts />
       </body>
