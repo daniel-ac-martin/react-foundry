@@ -113,7 +113,11 @@ export const oidc: AuthBagger<Options> = async ({
   clientSecret,
   issuer,
   redirectUri: _redirectUri
-}, fullSessions) => {
+}, fullSessions, log) => {
+  if (new URL(issuer).protocol === 'http:') {
+    log.warn('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
+  }
+
   const redirectUri = _redirectUri + '/auth/callback'
   const config = await discover(issuer, clientId, clientSecret);
 

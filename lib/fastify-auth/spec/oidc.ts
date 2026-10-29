@@ -32,8 +32,19 @@ const updateJar = (jar: Jar, res: LightMyRequestResponse) => {
   });
 };
 
-const createApp = async (issuer: string, options: { clientSecret?: string, privacy?: boolean } = {}) => {
-  const app = Fastify();
+type AppOptions = {
+  clientSecret?: string
+  privacy?: boolean
+  logs?: string[]
+};
+
+const createApp = async (issuer: string, options: AppOptions = {}) => {
+  const app = Fastify({
+    logger: options.logs && {
+      level: 'warn',
+      stream: { write: (line: string) => options.logs!.push(JSON.parse(line).msg) }
+    }
+  });
 
   await app.register(fastifyAuth, {
     privacy: options.privacy ?? false,
@@ -384,6 +395,21 @@ describe('OIDC authentication', () => {
       expect(callback.statusCode).toBe(302);
       expect(callback.headers.location).toBe('/');
       expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
+  });
+
+  describe('when the issuer is not using HTTPS', () => {
+    it('warns that it is insecure', async () => {
+      const op = new MockOIDCProvider({ clientId, clientSecret });
+      const logs: string[] = [];
+      await op.start();
+
+      const app = await createApp(op.issuer, { clientSecret, logs });
+
+      expect(logs).toContain('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
+
+      await app.close();
+      await op.stop();
     });
   });
 

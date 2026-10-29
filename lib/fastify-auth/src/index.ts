@@ -106,10 +106,10 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
     terminate,
     wantSession
   } = await (
-    isDummy(methodOptions) ? dummy(methodOptions, fullSessions)
-      : isHeaders(methodOptions) ? headers(methodOptions, fullSessions)
-      : isBasic(methodOptions) ? basic(methodOptions, fullSessions)
-      : isOIDC(methodOptions) ? oidc(methodOptions, fullSessions)
+    isDummy(methodOptions) ? dummy(methodOptions, fullSessions, fastify.log)
+      : isHeaders(methodOptions) ? headers(methodOptions, fullSessions, fastify.log)
+      : isBasic(methodOptions) ? basic(methodOptions, fullSessions, fastify.log)
+      : isOIDC(methodOptions) ? oidc(methodOptions, fullSessions, fastify.log)
       : {}
   );
 

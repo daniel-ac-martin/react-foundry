@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { Request as _Request, RequestFull as _RequestFull, Reply, ReplyFull } from '@react-foundry/fastify-session';
 
 export type Promised<T> = T | Promise<T>;
@@ -56,7 +56,7 @@ export type AuthBag = {
   wantSession: boolean
 };
 
-export type AuthBagger<T> = (config: T, fullSessions: boolean) => Promised<AuthBag>;
+export type AuthBagger<T> = (config: T, fullSessions: boolean, log: FastifyBaseLogger) => Promised<AuthBag>;
 
 export const id = <T>(x: T): T => x;
 
