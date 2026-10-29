@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/components",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "React components to support the React Foundry system.",
   "type": "module",
   "main": "src/index.ts",

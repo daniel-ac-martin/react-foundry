@@ -1,6 +1,6 @@
 {
   "name": "@react-foundry/forms",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "An intuitive isometric forms framework for React.",
   "type": "module",
   "main": "src/index.ts",
