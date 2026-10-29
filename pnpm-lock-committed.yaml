@@ -230,6 +230,9 @@ importers:
       '@react-foundry/components':
         specifier: workspace:*
         version: link:../../lib/components
+      '@react-foundry/router':
+        specifier: workspace:*
+        version: link:../../lib/router
       '@react-router/fs-routes':
         specifier: 8.5.0
         version: 8.5.0(@react-router/dev@8.5.0(@react-router/serve@8.5.0(react-router@8.5.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@8.1.1)(typescript@6.0.3))(react-router@8.5.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(supports-color@8.1.1)(typescript@6.0.3)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.27.2)(sass-embedded@1.106.1)(sass@1.106.1)))(typescript@6.0.3)
