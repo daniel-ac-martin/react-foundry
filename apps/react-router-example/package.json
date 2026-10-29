@@ -21,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "@react-foundry/components": "workspace:*",
+    "@react-foundry/router": "workspace:*",
     "@react-router/fs-routes": "8.5.0",
     "@react-router/node": "8.5.0",
     "@react-router/serve": "8.5.0",
