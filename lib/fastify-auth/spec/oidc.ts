@@ -2,16 +2,16 @@
  * @jest-environment node
  */
 
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
-import Fastify from 'fastify';
-import { AuthMethod, fastifyAuth } from '../src/index.js';
-import { MockOIDCProvider, basicCredentials } from './helpers/mock-oidc-provider.js';
+import { createApp as _createApp, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
+import { basicCredentials } from './helpers/common.js';
+import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
 
 const clientId = 'my-client';
 const clientSecret = 'my-client-secret';
-const redirectUri = 'https://my-website';
 
 const alice: MockUser = {
   sub: 'f6c1d2a0-0000-4000-8000-000000000001',
@@ -24,70 +24,9 @@ const alice: MockUser = {
   resource_access: { [clientId]: { roles: [ 'editor' ] } }
 };
 
-type Jar = Record<string, string>;
+const createApp = (issuer: string, options: Omit<AppOptions, 'clientId'> = {}) => _createApp(issuer, { clientId, ...options });
 
-const updateJar = (jar: Jar, res: LightMyRequestResponse) => {
-  (res.cookies as Array<{ name: string, value: string }>).forEach(({ name, value }) => {
-    jar[name] = value;
-  });
-};
-
-type AppOptions = {
-  clientSecret?: string
-  privacy?: boolean
-  logs?: string[]
-};
-
-const createApp = async (issuer: string, options: AppOptions = {}) => {
-  const app = Fastify({
-    logger: options.logs && {
-      level: 'warn',
-      stream: { write: (line: string) => options.logs!.push(JSON.parse(line).msg) }
-    }
-  });
-
-  await app.register(fastifyAuth, {
-    privacy: options.privacy ?? false,
-    session: {
-      cookies: {
-        secret: 'a-secret-that-is-at-least-32-characters-long'
-      }
-    },
-    method: AuthMethod.OIDC,
-    issuer,
-    clientId,
-    clientSecret: options.clientSecret,
-    redirectUri
-  });
-
-  app.get('/whoami', async (req: any) => req.user || null);
-
-  await app.ready();
-
-  return app;
-};
-
-const signIn = async (app: FastifyInstance, op: MockOIDCProvider, jar: Jar, user: MockUser = alice) => {
-  const start = await app.inject({ method: 'GET', url: '/auth/sign-in', cookies: jar });
-  updateJar(jar, start);
-
-  const { code, state } = op.authorize(start.headers.location as string, user);
-  const callback = await app.inject({
-    method: 'GET',
-    url: `/auth/callback?code=${code}&state=${state}`,
-    cookies: jar
-  });
-  updateJar(jar, callback);
-
-  return { start, callback };
-};
-
-const whoami = async (app: FastifyInstance, jar: Jar) => {
-  const res = await app.inject({ method: 'GET', url: '/whoami', cookies: jar });
-  updateJar(jar, res);
-
-  return res.json();
-};
+const signIn = (app: FastifyInstance, op: MockOIDCProvider, jar: Jar) => _signIn(app, op, jar, alice);
 
 describe('OIDC authentication', () => {
   describe('with a confidential client', () => {

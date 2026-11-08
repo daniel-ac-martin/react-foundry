@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
-import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
-import Fastify from 'fastify';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { basicCredentials, createServer, sha256, signJwt } from './common.js';
 
 // A minimal OpenID Provider (in the style of Keycloak) for exercising the OIDC
 // flow without a real identity server.
@@ -33,18 +33,6 @@ type Grant = {
   user: MockUser
 };
 
-const base64url = (v: Buffer | string) => Buffer.from(v).toString('base64url');
-
-// Client credentials are form-urlencoded before being base64 encoded
-// See: https://www.rfc-editor.org/rfc/rfc6749#section-2.3.1
-const formUrlDecode = (v: string) => decodeURIComponent(v.replace(/\+/g, ' '));
-
-export const basicCredentials = (authorization?: string) => {
-  const match = authorization?.match(/^Basic (.+)$/);
-
-  return match && Buffer.from(match[1], 'base64').toString().split(':').map(formUrlDecode);
-};
-
 export class MockOIDCProvider {
   readonly clientId: string;
   readonly clientSecret?: string;
@@ -66,13 +54,7 @@ export class MockOIDCProvider {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this.realm = realm;
-    this.httpd = Fastify();
-
-    this.httpd.addContentTypeParser(
-      'application/x-www-form-urlencoded',
-      { parseAs: 'string' },
-      (_req, body, done) => done(null, Object.fromEntries(new URLSearchParams(body as string)))
-    );
+    this.httpd = createServer();
 
     const prefix = `/realms/${realm}`;
 
@@ -113,9 +95,7 @@ export class MockOIDCProvider {
         const grant = this.grants.get(params.code);
         this.grants.delete(params.code);
 
-        const challenge = params.code_verifier && base64url(
-          createHash('sha256').update(params.code_verifier).digest()
-        );
+        const challenge = params.code_verifier && sha256(params.code_verifier);
 
         if (!grant || challenge !== grant.codeChallenge) {
           return reply.code(400).send({ error: 'invalid_grant' });
@@ -184,11 +164,7 @@ export class MockOIDCProvider {
   }
 
   jwt(claims: object) {
-    const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: this.kid }));
-    const payload = base64url(JSON.stringify(claims));
-    const signature = sign('sha256', Buffer.from(`${header}.${payload}`), this.keys.privateKey);
-
-    return `${header}.${payload}.${base64url(signature)}`;
+    return signJwt(claims, this.keys.privateKey, { kid: this.kid });
   }
 
   private clientAuthenticated(authorization: string | undefined, params: Record<string, string>) {
