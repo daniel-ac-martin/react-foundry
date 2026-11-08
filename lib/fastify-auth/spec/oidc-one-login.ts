@@ -59,7 +59,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(location.origin + location.pathname).toBe(`${op.base}/authorize`);
   });
 
-  it.skip('sends a nonce (#490)', async () => {
+  it('sends a nonce', async () => {
     const res = await startSignIn(app, jar);
 
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);

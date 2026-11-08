@@ -12,6 +12,7 @@ import {
   calculatePKCECodeChallenge,
   discovery,
   fetchUserInfo,
+  randomNonce,
   randomPKCECodeVerifier,
   randomState,
   refreshTokenGrant
@@ -50,6 +51,7 @@ type JWT = {
 
 type SessionObj = {
   codeVerifier?: string
+  nonce?: string
   state?: string
 };
 
@@ -246,16 +248,19 @@ export const oidc: AuthBagger<Options> = async ({
     const codeVerifier = randomPKCECodeVerifier();
     const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
     const state = randomState();
+    const nonce = randomNonce();
     const redirectTo = buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
       // scope: 'openid email profile',
       scope: 'openid',
       state,
+      nonce,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256'
     });
     const sessionObj: SessionObj = {
       codeVerifier,
+      nonce,
       state
     };
 
@@ -271,6 +276,7 @@ export const oidc: AuthBagger<Options> = async ({
 
     const {
       codeVerifier,
+      nonce,
       state
     } = sessionObj;
 
@@ -283,6 +289,7 @@ export const oidc: AuthBagger<Options> = async ({
     currentUrl.search = new URL(req.url, currentUrl).search;
 
     const tokenSet = await authorizationCodeGrant(config, currentUrl, {
+      expectedNonce: nonce,
       expectedState: state,
       idTokenExpected: true,
       pkceCodeVerifier: codeVerifier

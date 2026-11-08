@@ -77,7 +77,7 @@ describe('OIDC authentication', () => {
         expect(a.searchParams.get('code_challenge')).not.toBe(b.searchParams.get('code_challenge'));
       });
 
-      it.skip('sends a nonce, which differs each time (#490)', async () => {
+      it('sends a nonce, which differs each time', async () => {
         const a = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
         const b = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
 
@@ -169,6 +169,25 @@ describe('OIDC authentication', () => {
 
         expect(callback.statusCode).toBeGreaterThanOrEqual(400);
         expect(callback.statusCode).toBeLessThan(500);
+      });
+
+      it('rejects an ID token issued with a different nonce', async () => {
+        const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
+        updateJar(jar, start);
+
+        const url = new URL(start.headers.location as string);
+        url.searchParams.set('nonce', 'not-the-nonce');
+
+        const { code, state } = op.authorize(url.href, alice);
+        const callback = await app.inject({
+          method: 'GET',
+          url: `/auth/callback?code=${code}&state=${state}`,
+          cookies: jar
+        });
+        updateJar(jar, callback);
+
+        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(await whoami(app, jar)).toBeNull();
       });
 
       it('rejects a callback without a sign-in session', async () => {
