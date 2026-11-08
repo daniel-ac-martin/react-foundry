@@ -106,7 +106,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     });
   });
 
-  it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
+  it('reports a cancelled sign-in as not signed in', async () => {
     const start = await startSignIn(app, jar);
     const state = new URL(start.headers.location as string).searchParams.get('state');
     const callback = await app.inject({
@@ -116,8 +116,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     });
     updateJar(jar, callback);
 
-    expect(callback.statusCode).toBeGreaterThanOrEqual(400);
-    expect(callback.statusCode).toBeLessThan(500);
+    expect(callback.statusCode).toBe(401);
   });
 
   it('signs out at One Login\'s logout endpoint', async () => {

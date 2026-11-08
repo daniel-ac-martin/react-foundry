@@ -134,12 +134,12 @@ describe('OIDC authentication', () => {
         });
         updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBe(400);
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
       });
 
-      it('rejects an error response from the provider', async () => {
+      it('reports a cancelled sign-in as not signed in', async () => {
         const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
         updateJar(jar, start);
 
@@ -151,24 +151,10 @@ describe('OIDC authentication', () => {
         });
         updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBe(401);
+        expect(callback.json().code).toBe('FST_OIDC_NOT_SIGNED_IN');
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
-      });
-
-      it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
-        const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
-        updateJar(jar, start);
-
-        const state = new URL(start.headers.location as string).searchParams.get('state');
-        const callback = await app.inject({
-          method: 'GET',
-          url: `/auth/callback?error=access_denied&state=${state}`,
-          cookies: jar
-        });
-
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
-        expect(callback.statusCode).toBeLessThan(500);
       });
 
       it('rejects an ID token issued with a different nonce', async () => {
@@ -186,7 +172,7 @@ describe('OIDC authentication', () => {
         });
         updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBe(400);
         expect(await whoami(app, jar)).toBeNull();
       });
 
@@ -208,7 +194,7 @@ describe('OIDC authentication', () => {
         await app.inject({ method: 'GET', url, cookies: jar });
         const replay = await app.inject({ method: 'GET', url, cookies: replayJar });
 
-        expect(replay.statusCode).toBeGreaterThanOrEqual(400);
+        expect(replay.statusCode).toBe(400);
       });
     });
 
@@ -392,6 +378,22 @@ describe('OIDC authentication', () => {
       expect(callback.statusCode).toBe(302);
       expect(callback.headers.location).toBe('/');
       expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
+  });
+
+  describe('when the provider rejects the client\'s credentials', () => {
+    it('reports a provider error', async () => {
+      const op = new MockOIDCProvider({ clientId, clientSecret });
+      await op.start();
+
+      const app = await createApp(op.issuer, { clientSecret: 'not-the-secret' });
+      const { callback } = await signIn(app, op, {});
+
+      expect(callback.statusCode).toBe(502);
+      expect(callback.json().code).toBe('FST_OIDC_PROVIDER_ERROR');
+
+      await app.close();
+      await op.stop();
     });
   });
 
