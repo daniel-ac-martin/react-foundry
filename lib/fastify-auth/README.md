@@ -84,6 +84,21 @@ using OIDC, it should also contain the `accessToken` for making requests to
 other services on behalf of the user.
 
 
+### OIDC sign-in errors
+
+When an OIDC sign-in fails, the callback responds with one of the following
+errors, which your application's error handler can turn into a suitable page.
+
+- **`FST_OIDC_NOT_SIGNED_IN` (401):** The identity provider did not sign the
+  user in, such as when they cancel.
+- **`FST_OIDC_BAD_CALLBACK` (400):** The response does not match the sign-in
+  that started it, such as after using the back button, or when the
+  authorization code has expired or already been used.
+- **`FST_BAD_SESSION` (409):** The sign-in session has gone.
+- **`FST_OIDC_PROVIDER_ERROR` (502):** The identity provider rejected one of
+  our requests, such as when the client credentials are wrong.
+
+
 Working on this package
 -----------------------
 

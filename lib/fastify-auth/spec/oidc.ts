@@ -7,7 +7,7 @@ import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
 import { createApp as _createApp, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
-import { basicCredentials } from './helpers/common.js';
+import { basicCredentials, decodeJwt } from './helpers/common.js';
 import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
 
 const clientId = 'my-client';
@@ -77,7 +77,7 @@ describe('OIDC authentication', () => {
         expect(a.searchParams.get('code_challenge')).not.toBe(b.searchParams.get('code_challenge'));
       });
 
-      it.skip('sends a nonce, which differs each time (#490)', async () => {
+      it('sends a nonce, which differs each time', async () => {
         const a = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
         const b = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
 
@@ -134,12 +134,12 @@ describe('OIDC authentication', () => {
         });
         updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBe(400);
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
       });
 
-      it('rejects an error response from the provider', async () => {
+      it('reports a cancelled sign-in as not signed in', async () => {
         const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
         updateJar(jar, start);
 
@@ -151,24 +151,29 @@ describe('OIDC authentication', () => {
         });
         updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBe(401);
+        expect(callback.json().code).toBe('FST_OIDC_NOT_SIGNED_IN');
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
       });
 
-      it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
+      it('rejects an ID token issued with a different nonce', async () => {
         const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
         updateJar(jar, start);
 
-        const state = new URL(start.headers.location as string).searchParams.get('state');
+        const url = new URL(start.headers.location as string);
+        url.searchParams.set('nonce', 'not-the-nonce');
+
+        const { code, state } = op.authorize(url.href, alice);
         const callback = await app.inject({
           method: 'GET',
-          url: `/auth/callback?error=access_denied&state=${state}`,
+          url: `/auth/callback?code=${code}&state=${state}`,
           cookies: jar
         });
+        updateJar(jar, callback);
 
-        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
-        expect(callback.statusCode).toBeLessThan(500);
+        expect(callback.statusCode).toBe(400);
+        expect(await whoami(app, jar)).toBeNull();
       });
 
       it('rejects a callback without a sign-in session', async () => {
@@ -189,7 +194,7 @@ describe('OIDC authentication', () => {
         await app.inject({ method: 'GET', url, cookies: jar });
         const replay = await app.inject({ method: 'GET', url, cookies: replayJar });
 
-        expect(replay.statusCode).toBeGreaterThanOrEqual(400);
+        expect(replay.statusCode).toBe(400);
       });
     });
 
@@ -279,13 +284,20 @@ describe('OIDC authentication', () => {
         expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
       });
 
-      it.skip('sends id_token_hint (#491)', async () => {
+      it('sends id_token_hint', async () => {
         await signIn(app, op, jar);
 
         const res = await app.inject({ method: 'GET', url: '/auth/sign-out', cookies: jar });
         const location = new URL(res.headers.location as string);
 
-        expect(location.searchParams.get('id_token_hint')).toMatch(/^[^.]+\.[^.]+\.[^.]+$/);
+        expect(decodeJwt(location.searchParams.get('id_token_hint') as string).payload).toMatchObject({ sub: alice.sub, aud: clientId });
+      });
+
+      it('leaves out id_token_hint when nobody is signed in', async () => {
+        const res = await app.inject({ method: 'GET', url: '/auth/sign-out' });
+        const location = new URL(res.headers.location as string);
+
+        expect(location.searchParams.has('id_token_hint')).toBe(false);
       });
 
       it('ends the local session', async () => {
@@ -366,6 +378,22 @@ describe('OIDC authentication', () => {
       expect(callback.statusCode).toBe(302);
       expect(callback.headers.location).toBe('/');
       expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
+  });
+
+  describe('when the provider rejects the client\'s credentials', () => {
+    it('reports a provider error', async () => {
+      const op = new MockOIDCProvider({ clientId, clientSecret });
+      await op.start();
+
+      const app = await createApp(op.issuer, { clientSecret: 'not-the-secret' });
+      const { callback } = await signIn(app, op, {});
+
+      expect(callback.statusCode).toBe(502);
+      expect(callback.json().code).toBe('FST_OIDC_PROVIDER_ERROR');
+
+      await app.close();
+      await op.stop();
     });
   });
 

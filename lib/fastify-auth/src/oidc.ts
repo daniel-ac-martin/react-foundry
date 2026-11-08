@@ -1,9 +1,13 @@
-import type { AuthBagger, Deserialize, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
+import type { AuthBagger, Deserialize, Maybe, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
+import type { FastifyError } from '@fastify/error';
 import type { DiscoveryRequestOptions } from 'openid-client';
 
 import {
+  AuthorizationResponseError,
+  ClientError,
   ClientSecretBasic,
+  ResponseBodyError,
   None,
   allowInsecureRequests,
   authorizationCodeGrant,
@@ -12,6 +16,7 @@ import {
   calculatePKCECodeChallenge,
   discovery,
   fetchUserInfo,
+  randomNonce,
   randomPKCECodeVerifier,
   randomState,
   refreshTokenGrant
@@ -50,6 +55,7 @@ type JWT = {
 
 type SessionObj = {
   codeVerifier?: string
+  nonce?: string
   state?: string
 };
 
@@ -60,6 +66,40 @@ const resourceToRoles: Reducer<any[], string[]> = (acc, [x, y]) => ([
 ]);
 
 const BadSession = createError('FST_BAD_SESSION', 'Unable to verify session', 409);
+const NotSignedIn = createError('FST_OIDC_NOT_SIGNED_IN', 'The identity provider did not sign the user in: %s', 401);
+const BadCallback = createError('FST_OIDC_BAD_CALLBACK', 'The sign-in response does not match the sign-in request', 400);
+const ProviderError = createError('FST_OIDC_PROVIDER_ERROR', 'The identity provider rejected a request: %s', 502);
+
+// The claim that failed a comparison, which openid-client nests two causes deep
+const failedClaim = (err: ClientError) => {
+  const detail = err.cause instanceof Error && err.cause.cause;
+
+  return (
+    typeof detail === 'object' && detail !== null && 'claim' in detail
+      ? detail.claim
+      : undefined
+  );
+};
+
+// Most callback failures are not server errors
+const callbackError = <T>(err: T): T | FastifyError => {
+  const code = err instanceof ClientError ? err.code : undefined;
+  const notSignedIn = err instanceof AuthorizationResponseError;
+  const codeRejected = err instanceof ResponseBodyError && err.error === 'invalid_grant';
+  const responseInvalid = code === 'OAUTH_INVALID_RESPONSE';
+  const nonceMismatch = err instanceof ClientError && code === 'OAUTH_JWT_CLAIM_COMPARISON_FAILED' && failedClaim(err) === 'nonce';
+  const providerRejected = err instanceof ResponseBodyError;
+
+  if (notSignedIn) {
+    return new NotSignedIn(err.error, { cause: err });
+  } else if (codeRejected || responseInvalid || nonceMismatch) {
+    return new BadCallback({ cause: err });
+  } else if (providerRejected) {
+    return new ProviderError(err.error, { cause: err });
+  } else {
+    return err;
+  }
+};
 
 const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
@@ -246,16 +286,19 @@ export const oidc: AuthBagger<Options> = async ({
     const codeVerifier = randomPKCECodeVerifier();
     const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
     const state = randomState();
+    const nonce = randomNonce();
     const redirectTo = buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
       // scope: 'openid email profile',
       scope: 'openid',
       state,
+      nonce,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256'
     });
     const sessionObj: SessionObj = {
       codeVerifier,
+      nonce,
       state
     };
 
@@ -271,6 +314,7 @@ export const oidc: AuthBagger<Options> = async ({
 
     const {
       codeVerifier,
+      nonce,
       state
     } = sessionObj;
 
@@ -282,22 +326,33 @@ export const oidc: AuthBagger<Options> = async ({
     const currentUrl = new URL(redirectUri);
     currentUrl.search = new URL(req.url, currentUrl).search;
 
-    const tokenSet = await authorizationCodeGrant(config, currentUrl, {
-      expectedState: state,
-      idTokenExpected: true,
-      pkceCodeVerifier: codeVerifier
-    });
-    const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
-    const user: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo);
+    try {
+      const tokenSet = await authorizationCodeGrant(config, currentUrl, {
+        expectedNonce: nonce,
+        expectedState: state,
+        idTokenExpected: true,
+        pkceCodeVerifier: codeVerifier
+      });
+      const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
+      const user: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo);
 
-    if (user.username) {
-      req.user = user;
+      if (user.username) {
+        req.user = user;
+      }
+    } catch (err) {
+      if (err instanceof AuthorizationResponseError) {
+        req.log.info({ error: err.error, description: err.error_description }, 'Identity provider did not sign the user in');
+      }
+
+      throw callbackError(err);
     }
   };
 
-  const terminate: SubRouteHandlerMethod = async (req, reply) => {
+  const terminate: SubRouteHandlerMethod = async (_req, reply, user) => {
+    const idToken = (user as Maybe<AuthInfo>)?.idToken;
     const redirectTo = buildEndSessionUrl(config, {
-      post_logout_redirect_uri: _redirectUri
+      post_logout_redirect_uri: _redirectUri,
+      ...(idToken && { id_token_hint: idToken })
     });
 
     return reply.redirect(redirectTo.href);

@@ -87,7 +87,7 @@ describe('OIDC authentication with Entra ID', () => {
     expect(new URL(res.headers.location as string).searchParams.get('scope')).toBe(scope);
   });
 
-  it.skip('sends a nonce (#490)', async () => {
+  it('sends a nonce', async () => {
     const res = await startSignIn(app, jar);
 
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
@@ -118,7 +118,7 @@ describe('OIDC authentication with Entra ID', () => {
     expect(user).toMatchObject({ username: 'alice@contoso.example', accessTokenValid: true });
   });
 
-  it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
+  it('reports a cancelled sign-in as not signed in', async () => {
     const start = await startSignIn(app, jar);
     const state = new URL(start.headers.location as string).searchParams.get('state');
     const callback = await app.inject({
@@ -128,8 +128,7 @@ describe('OIDC authentication with Entra ID', () => {
     });
     updateJar(jar, callback);
 
-    expect(callback.statusCode).toBeGreaterThanOrEqual(400);
-    expect(callback.statusCode).toBeLessThan(500);
+    expect(callback.statusCode).toBe(401);
   });
 
   it('signs out at the tenant\'s logout endpoint', async () => {

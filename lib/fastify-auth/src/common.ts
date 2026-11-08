@@ -29,7 +29,8 @@ export type RequestFull = _RequestFull & RequestExtras;
 
 export type SubRouteHandlerMethod = (
   request: RequestFull,
-  reply: Reply
+  reply: Reply,
+  user?: UserProfile
 ) => Promised<unknown | void>;
 export type RouteHandlerMethod = (
   this: FastifyInstance,
