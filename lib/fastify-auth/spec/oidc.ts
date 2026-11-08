@@ -7,7 +7,7 @@ import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
 import { createApp as _createApp, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
-import { basicCredentials } from './helpers/common.js';
+import { basicCredentials, decodeJwt } from './helpers/common.js';
 import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
 
 const clientId = 'my-client';
@@ -298,13 +298,20 @@ describe('OIDC authentication', () => {
         expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
       });
 
-      it.skip('sends id_token_hint (#491)', async () => {
+      it('sends id_token_hint', async () => {
         await signIn(app, op, jar);
 
         const res = await app.inject({ method: 'GET', url: '/auth/sign-out', cookies: jar });
         const location = new URL(res.headers.location as string);
 
-        expect(location.searchParams.get('id_token_hint')).toMatch(/^[^.]+\.[^.]+\.[^.]+$/);
+        expect(decodeJwt(location.searchParams.get('id_token_hint') as string).payload).toMatchObject({ sub: alice.sub, aud: clientId });
+      });
+
+      it('leaves out id_token_hint when nobody is signed in', async () => {
+        const res = await app.inject({ method: 'GET', url: '/auth/sign-out' });
+        const location = new URL(res.headers.location as string);
+
+        expect(location.searchParams.has('id_token_hint')).toBe(false);
       });
 
       it('ends the local session', async () => {

@@ -211,12 +211,14 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
 
     // Sign-out endpoint
     fastify.get(pathPrefix + signOutPath, async (req: Request, reply) => {
+      const user = req.user;
+
       if (useSession && req.session?.user) {
         delete req.user;
         delete req.session.user; // FIXME: Delete entire session?!
       }
 
-      const r = await terminate?.(req as RequestFull, reply);
+      const r = await terminate?.(req as RequestFull, reply, user);
 
       req.log.debug('User logged out');
 

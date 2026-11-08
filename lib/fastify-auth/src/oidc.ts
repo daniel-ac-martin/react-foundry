@@ -1,4 +1,4 @@
-import type { AuthBagger, Deserialize, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
+import type { AuthBagger, Deserialize, Maybe, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
 import type { DiscoveryRequestOptions } from 'openid-client';
 
@@ -302,9 +302,11 @@ export const oidc: AuthBagger<Options> = async ({
     }
   };
 
-  const terminate: SubRouteHandlerMethod = async (req, reply) => {
+  const terminate: SubRouteHandlerMethod = async (_req, reply, user) => {
+    const idToken = (user as Maybe<AuthInfo>)?.idToken;
     const redirectTo = buildEndSessionUrl(config, {
-      post_logout_redirect_uri: _redirectUri
+      post_logout_redirect_uri: _redirectUri,
+      ...(idToken && { id_token_hint: idToken })
     });
 
     return reply.redirect(redirectTo.href);
