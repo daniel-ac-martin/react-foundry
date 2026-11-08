@@ -2,16 +2,16 @@
  * @jest-environment node
  */
 
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
-import Fastify from 'fastify';
-import { AuthMethod, fastifyAuth } from '../src/index.js';
-import { MockOIDCProvider, basicCredentials } from './helpers/mock-oidc-provider.js';
+import { createApp as _createApp, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
+import { basicCredentials } from './helpers/common.js';
+import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
 
 const clientId = 'my-client';
 const clientSecret = 'my-client-secret';
-const redirectUri = 'https://my-website';
 
 const alice: MockUser = {
   sub: 'f6c1d2a0-0000-4000-8000-000000000001',
@@ -24,70 +24,9 @@ const alice: MockUser = {
   resource_access: { [clientId]: { roles: [ 'editor' ] } }
 };
 
-type Jar = Record<string, string>;
+const createApp = (issuer: string, options: Omit<AppOptions, 'clientId'> = {}) => _createApp(issuer, { clientId, ...options });
 
-const updateJar = (jar: Jar, res: LightMyRequestResponse) => {
-  (res.cookies as Array<{ name: string, value: string }>).forEach(({ name, value }) => {
-    jar[name] = value;
-  });
-};
-
-type AppOptions = {
-  clientSecret?: string
-  privacy?: boolean
-  logs?: string[]
-};
-
-const createApp = async (issuer: string, options: AppOptions = {}) => {
-  const app = Fastify({
-    logger: options.logs && {
-      level: 'warn',
-      stream: { write: (line: string) => options.logs!.push(JSON.parse(line).msg) }
-    }
-  });
-
-  await app.register(fastifyAuth, {
-    privacy: options.privacy ?? false,
-    session: {
-      cookies: {
-        secret: 'a-secret-that-is-at-least-32-characters-long'
-      }
-    },
-    method: AuthMethod.OIDC,
-    issuer,
-    clientId,
-    clientSecret: options.clientSecret,
-    redirectUri
-  });
-
-  app.get('/whoami', async (req: any) => req.user || null);
-
-  await app.ready();
-
-  return app;
-};
-
-const signIn = async (app: FastifyInstance, op: MockOIDCProvider, jar: Jar, user: MockUser = alice) => {
-  const start = await app.inject({ method: 'GET', url: '/auth/sign-in', cookies: jar });
-  updateJar(jar, start);
-
-  const { code, state } = op.authorize(start.headers.location as string, user);
-  const callback = await app.inject({
-    method: 'GET',
-    url: `/auth/callback?code=${code}&state=${state}`,
-    cookies: jar
-  });
-  updateJar(jar, callback);
-
-  return { start, callback };
-};
-
-const whoami = async (app: FastifyInstance, jar: Jar) => {
-  const res = await app.inject({ method: 'GET', url: '/whoami', cookies: jar });
-  updateJar(jar, res);
-
-  return res.json();
-};
+const signIn = (app: FastifyInstance, op: MockOIDCProvider, jar: Jar) => _signIn(app, op, jar, alice);
 
 describe('OIDC authentication', () => {
   describe('with a confidential client', () => {
@@ -136,6 +75,14 @@ describe('OIDC authentication', () => {
 
         expect(a.searchParams.get('state')).not.toBe(b.searchParams.get('state'));
         expect(a.searchParams.get('code_challenge')).not.toBe(b.searchParams.get('code_challenge'));
+      });
+
+      it.skip('sends a nonce, which differs each time (#490)', async () => {
+        const a = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
+        const b = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
+
+        expect(a.searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
+        expect(a.searchParams.get('nonce')).not.toBe(b.searchParams.get('nonce'));
       });
 
       it('stores the PKCE verifier and state in a session cookie', async () => {
@@ -207,6 +154,21 @@ describe('OIDC authentication', () => {
         expect(callback.statusCode).toBeGreaterThanOrEqual(400);
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
+      });
+
+      it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
+        const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
+        updateJar(jar, start);
+
+        const state = new URL(start.headers.location as string).searchParams.get('state');
+        const callback = await app.inject({
+          method: 'GET',
+          url: `/auth/callback?error=access_denied&state=${state}`,
+          cookies: jar
+        });
+
+        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBeLessThan(500);
       });
 
       it('rejects a callback without a sign-in session', async () => {
@@ -315,6 +277,15 @@ describe('OIDC authentication', () => {
         expect(location.origin + location.pathname).toBe(`${op.issuer}/protocol/openid-connect/logout`);
         expect(location.searchParams.get('client_id')).toBe(clientId);
         expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
+      });
+
+      it.skip('sends id_token_hint (#491)', async () => {
+        await signIn(app, op, jar);
+
+        const res = await app.inject({ method: 'GET', url: '/auth/sign-out', cookies: jar });
+        const location = new URL(res.headers.location as string);
+
+        expect(location.searchParams.get('id_token_hint')).toMatch(/^[^.]+\.[^.]+\.[^.]+$/);
       });
 
       it('ends the local session', async () => {
