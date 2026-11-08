@@ -77,6 +77,14 @@ describe('OIDC authentication', () => {
         expect(a.searchParams.get('code_challenge')).not.toBe(b.searchParams.get('code_challenge'));
       });
 
+      it.skip('sends a nonce, which differs each time (#490)', async () => {
+        const a = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
+        const b = new URL((await app.inject({ method: 'GET', url: '/auth/sign-in' })).headers.location as string);
+
+        expect(a.searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
+        expect(a.searchParams.get('nonce')).not.toBe(b.searchParams.get('nonce'));
+      });
+
       it('stores the PKCE verifier and state in a session cookie', async () => {
         const res = await app.inject({ method: 'GET', url: '/auth/sign-in' });
         updateJar(jar, res);
@@ -146,6 +154,21 @@ describe('OIDC authentication', () => {
         expect(callback.statusCode).toBeGreaterThanOrEqual(400);
         expect(op.tokenRequests).toHaveLength(0);
         expect(await whoami(app, jar)).toBeNull();
+      });
+
+      it.skip('reports a cancelled sign-in as a client error (#492)', async () => {
+        const start = await app.inject({ method: 'GET', url: '/auth/sign-in' });
+        updateJar(jar, start);
+
+        const state = new URL(start.headers.location as string).searchParams.get('state');
+        const callback = await app.inject({
+          method: 'GET',
+          url: `/auth/callback?error=access_denied&state=${state}`,
+          cookies: jar
+        });
+
+        expect(callback.statusCode).toBeGreaterThanOrEqual(400);
+        expect(callback.statusCode).toBeLessThan(500);
       });
 
       it('rejects a callback without a sign-in session', async () => {
@@ -254,6 +277,15 @@ describe('OIDC authentication', () => {
         expect(location.origin + location.pathname).toBe(`${op.issuer}/protocol/openid-connect/logout`);
         expect(location.searchParams.get('client_id')).toBe(clientId);
         expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
+      });
+
+      it.skip('sends id_token_hint (#491)', async () => {
+        await signIn(app, op, jar);
+
+        const res = await app.inject({ method: 'GET', url: '/auth/sign-out', cookies: jar });
+        const location = new URL(res.headers.location as string);
+
+        expect(location.searchParams.get('id_token_hint')).toMatch(/^[^.]+\.[^.]+\.[^.]+$/);
       });
 
       it('ends the local session', async () => {
