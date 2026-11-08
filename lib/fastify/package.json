@@ -34,12 +34,12 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@fastify/rate-limit": "^11.2.1",
+    "@fastify/rate-limit": "^11.2.2",
     "@react-foundry/fastify-auth": "workspace:^",
     "@react-foundry/fastify-dev-logger": "workspace:^",
     "@react-foundry/fastify-harden": "workspace:^",
     "close-with-grace": "^2.5.0",
-    "fastify": "^5.12.7"
+    "fastify": "^5.12.8"
   },
   "devDependencies": {
     "@react-foundry/types-helpers": "workspace:*",
