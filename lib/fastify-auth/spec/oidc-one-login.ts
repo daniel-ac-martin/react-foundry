@@ -10,7 +10,7 @@ import type { Jar } from './helpers/app.js';
 import type { MockOneLoginUser } from './helpers/mock-one-login.js';
 
 import { generateKeyPairSync } from 'node:crypto';
-import { createApp, redirectUri, signIn, signOut, startSignIn, updateJar, whoami } from './helpers/app.js';
+import { createApp, later, redirectUri, signIn, signOut, startSignIn, updateJar, whoami } from './helpers/app.js';
 import { decodeJwt } from './helpers/common.js';
 import { MockOneLoginProvider } from './helpers/mock-one-login.js';
 
@@ -48,7 +48,6 @@ describe('OIDC authentication with GOV.UK One Login', () => {
 
   beforeEach(() => {
     jar = {};
-    op.accessTokenTTL = 180;
     op.tokenRequests.length = 0;
   });
 
@@ -91,20 +90,20 @@ describe('OIDC authentication with GOV.UK One Login', () => {
   });
 
   it.skip('signs the user back in through One Login once their access token expires (#490, #493, #494, #495, #496)', async () => {
-    op.accessTokenTTL = 0;
     await signIn(app, op, jar, alice);
-    op.accessTokenTTL = 180;
 
-    const navigation = await app.inject({ method: 'GET', url: '/whoami', cookies: jar });
-    updateJar(jar, navigation);
+    await later(op.accessTokenTTL, async () => {
+      const navigation = await app.inject({ method: 'GET', url: '/whoami', cookies: jar });
+      updateJar(jar, navigation);
 
-    expect(navigation.statusCode).toBe(302);
+      expect(navigation.statusCode).toBe(302);
 
-    const { code, state } = op.authorize(navigation.headers.location as string, alice);
-    const callback = await app.inject({ method: 'GET', url: `/auth/callback?code=${code}&state=${state}`, cookies: jar });
-    updateJar(jar, callback);
+      const { code, state } = op.authorize(navigation.headers.location as string, alice);
+      const callback = await app.inject({ method: 'GET', url: `/auth/callback?code=${code}&state=${state}`, cookies: jar });
+      updateJar(jar, callback);
 
-    expect(await whoami(app, jar)).toMatchObject({ username: 'alice@example.com' });
+      expect(await whoami(app, jar)).toMatchObject({ username: 'alice@example.com' });
+    });
   });
 
   it.skip('reports a cancelled sign-in as a client error (#492)', async () => {

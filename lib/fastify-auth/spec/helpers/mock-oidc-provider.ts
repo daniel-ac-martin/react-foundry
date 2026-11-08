@@ -30,6 +30,7 @@ export type MockUser = {
 
 type Grant = {
   codeChallenge: string
+  nonce?: string
   user: MockUser
 };
 
@@ -101,7 +102,7 @@ export class MockOIDCProvider {
           return reply.code(400).send({ error: 'invalid_grant' });
         }
 
-        return this.tokenResponse(grant.user);
+        return this.tokenResponse(grant.user, grant.nonce);
       } else if (params.grant_type === 'refresh_token') {
         const user = this.refreshTokens.get(params.refresh_token);
 
@@ -150,6 +151,7 @@ export class MockOIDCProvider {
 
     this.grants.set(code, {
       codeChallenge: url.searchParams.get('code_challenge') || '',
+      nonce: url.searchParams.get('nonce') || undefined,
       user
     });
 
@@ -177,7 +179,7 @@ export class MockOIDCProvider {
     }
   }
 
-  private tokenResponse(user: MockUser) {
+  private tokenResponse(user: MockUser, nonce?: string) {
     const now = Math.floor(Date.now() / 1000);
     const common = {
       iss: this.issuer,
@@ -203,6 +205,7 @@ export class MockOIDCProvider {
       aud: this.clientId,
       azp: this.clientId,
       exp: now + 300,
+      ...(nonce && { nonce }),
       preferred_username: user.preferred_username
     });
 

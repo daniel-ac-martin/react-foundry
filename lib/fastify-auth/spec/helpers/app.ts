@@ -19,11 +19,12 @@ export type AppOptions = {
   clientSecret?: string
   privacy?: boolean
   logs?: string[]
+  session?: FastifyAuthOptions['session']
   // Options that the plugin's types don't include yet
   extra?: Record<string, unknown>
 };
 
-export const createApp = async (issuer: string, { clientId, clientSecret, privacy = false, logs, extra = {} }: AppOptions) => {
+export const createApp = async (issuer: string, { clientId, clientSecret, privacy = false, logs, session, extra = {} }: AppOptions) => {
   const app = Fastify({
     logger: logs && {
       level: 'warn',
@@ -33,7 +34,7 @@ export const createApp = async (issuer: string, { clientId, clientSecret, privac
 
   await app.register(fastifyAuth, {
     privacy,
-    session: {
+    session: session || {
       cookies: {
         secret: 'a-secret-that-is-at-least-32-characters-long'
       }
@@ -75,6 +76,18 @@ export const signIn = async <U>(app: FastifyInstance, op: Authorizer<U>, jar: Ja
   updateJar(jar, callback);
 
   return { start, callback };
+};
+
+// Runs `fn` as if `seconds` had passed, for the plugin, openid-client and the mocks
+export const later = async <T>(seconds: number, fn: () => Promise<T>) => {
+  const now = Date.now;
+  Date.now = () => now() + seconds * 1000;
+
+  try {
+    return await fn();
+  } finally {
+    Date.now = now;
+  }
 };
 
 export const whoami = async (app: FastifyInstance, jar: Jar) => {

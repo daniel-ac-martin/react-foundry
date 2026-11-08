@@ -9,7 +9,8 @@ import type { FastifyInstance } from 'fastify';
 import type { Jar } from './helpers/app.js';
 import type { MockEntraUser } from './helpers/mock-entra.js';
 
-import { createApp, redirectUri, signIn, signOut, startSignIn, updateJar, whoami } from './helpers/app.js';
+import { SessionStore } from '../src/index.js';
+import { createApp, later, redirectUri, signIn, signOut, startSignIn, updateJar, whoami } from './helpers/app.js';
 import { basicCredentials, decodeJwt } from './helpers/common.js';
 import { MockEntraProvider, certificateThumbprint, createCertificate } from './helpers/mock-entra.js';
 
@@ -17,6 +18,11 @@ const clientId = '6731de76-14a6-49ae-97bc-6eba6914391e';
 // Entra's secrets contain characters that are form-urlencoded in client_secret_basic
 const clientSecret = 'Xq28Q~vZ.jK3_mN9pLr-T4wYbC6dEfGh1sUoIaxn';
 const scope = 'openid profile email offline_access';
+// Entra's tokens are too large to keep in a cookie
+const session = {
+  store: SessionStore.Memory,
+  cookies: { secret: 'a-secret-that-is-at-least-32-characters-long' }
+} as const;
 
 const alice: MockEntraUser = {
   oid: '00000000-0000-4000-8000-00000000a11c',
@@ -40,6 +46,7 @@ describe('OIDC authentication with Entra ID', () => {
     app = await createApp(op.issuer, {
       clientId,
       clientSecret,
+      session,
       extra: {
         scope,
         claims: { id: 'oid', username: 'preferred_username' }
@@ -54,7 +61,6 @@ describe('OIDC authentication with Entra ID', () => {
 
   beforeEach(() => {
     jar = {};
-    op.accessTokenTTL = 3600;
     op.tokenRequests.length = 0;
   });
 
@@ -103,12 +109,10 @@ describe('OIDC authentication with Entra ID', () => {
   });
 
   it.skip('renews an expired access token with the opaque refresh token (#493, #494)', async () => {
-    op.accessTokenTTL = 0;
     await signIn(app, op, jar, alice);
-    op.accessTokenTTL = 3600;
 
     const before = op.tokenRequests.length;
-    const user = await whoami(app, jar);
+    const user = await later(op.accessTokenTTL, () => whoami(app, jar));
 
     expect(op.tokenRequests[before]?.params.grant_type).toBe('refresh_token');
     expect(user).toMatchObject({ username: 'alice@contoso.example', accessTokenValid: true });
@@ -149,6 +153,7 @@ describe('OIDC authentication with Entra ID', () => {
       await certOp.start();
       certApp = await createApp(certOp.issuer, {
         clientId,
+        session,
         extra: {
           scope,
           claims: { id: 'oid', username: 'preferred_username' },
