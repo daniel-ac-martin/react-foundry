@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
-import { basicCredentials, createServer, sha256, signJwt } from './common.js';
+import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { base64url, basicCredentials, bearerToken, createServer, sha256, signJwt } from './common.js';
 
 // A minimal OpenID Provider (in the style of Keycloak) for exercising the OIDC
 // flow without a real identity server.
@@ -34,22 +34,33 @@ type Grant = {
   user: MockUser
 };
 
+type IssuedToken = {
+  expiry: number
+  user: MockUser
+};
+
 export class MockOIDCProvider {
   readonly clientId: string;
   readonly clientSecret?: string;
   readonly realm: string;
   readonly tokenRequests: TokenRequest[] = [];
   readonly userinfoRequests: Array<{ authorization?: string }> = [];
-  // Token lifetimes in seconds; set negative values to issue expired tokens
+  // Seconds
   accessTokenTTL = 300;
   refreshTokenTTL = 1800;
+  // Behaviours of providers other than Keycloak
+  opaqueTokens = false;
+  sendExpiresIn = true;
+  sendRefreshExpiresIn = true;
+  rotateRefreshTokens = true;
   issuer = '';
 
   private readonly httpd: FastifyInstance;
   private readonly keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   private readonly kid = randomUUID();
   private readonly grants = new Map<string, Grant>();
-  private readonly refreshTokens = new Map<string, MockUser>();
+  private readonly accessTokens = new Map<string, IssuedToken>();
+  private readonly refreshTokens = new Map<string, IssuedToken>();
 
   constructor({ clientId, clientSecret, realm = 'test' }: MockOIDCProviderOptions) {
     this.clientId = clientId;
@@ -104,13 +115,17 @@ export class MockOIDCProvider {
 
         return this.tokenResponse(grant.user, grant.nonce);
       } else if (params.grant_type === 'refresh_token') {
-        const user = this.refreshTokens.get(params.refresh_token);
+        const refreshToken = this.refreshTokens.get(params.refresh_token);
 
-        if (!user) {
+        if (!refreshToken || refreshToken.expiry <= Math.floor(Date.now() / 1000)) {
           return reply.code(400).send({ error: 'invalid_grant' });
         }
 
-        return this.tokenResponse(user);
+        if (this.rotateRefreshTokens) {
+          this.refreshTokens.delete(params.refresh_token);
+        }
+
+        return this.tokenResponse(refreshToken.user, undefined, this.rotateRefreshTokens);
       } else {
         return reply.code(400).send({ error: 'unsupported_grant_type' });
       }
@@ -118,16 +133,16 @@ export class MockOIDCProvider {
 
     this.httpd.get(`${prefix}/protocol/openid-connect/userinfo`, async (req, reply) => {
       const authorization = req.headers.authorization;
-      const token = authorization?.replace(/^Bearer /, '');
-      const payload = token && JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+      const token = bearerToken(authorization);
+      const accessToken = token && this.accessTokens.get(token);
 
       this.userinfoRequests.push({ authorization });
 
-      if (!payload) {
+      if (!accessToken || accessToken.expiry <= Math.floor(Date.now() / 1000)) {
         return reply.code(401).send({ error: 'invalid_token' });
       }
 
-      const { sub, preferred_username, name, given_name, family_name, email } = payload;
+      const { sub, preferred_username, name, given_name, family_name, email } = accessToken.user;
 
       return { sub, preferred_username, name, given_name, family_name, email };
     });
@@ -179,14 +194,15 @@ export class MockOIDCProvider {
     }
   }
 
-  private tokenResponse(user: MockUser, nonce?: string) {
+  private tokenResponse(user: MockUser, nonce?: string, issueRefreshToken = true) {
     const now = Math.floor(Date.now() / 1000);
+    const opaque = () => base64url(randomBytes(32));
     const common = {
       iss: this.issuer,
       sub: user.sub,
       iat: now - 1
     };
-    const accessToken = this.jwt({
+    const accessToken = this.opaqueTokens ? opaque() : this.jwt({
       ...common,
       ...user,
       aud: 'account',
@@ -194,7 +210,7 @@ export class MockOIDCProvider {
       exp: now + this.accessTokenTTL,
       jti: randomUUID()
     });
-    const refreshToken = this.jwt({
+    const refreshToken = this.opaqueTokens ? opaque() : this.jwt({
       ...common,
       aud: this.issuer,
       exp: now + this.refreshTokenTTL,
@@ -209,13 +225,18 @@ export class MockOIDCProvider {
       preferred_username: user.preferred_username
     });
 
-    this.refreshTokens.set(refreshToken, user);
+    this.accessTokens.set(accessToken, { expiry: now + this.accessTokenTTL, user });
+
+    if (issueRefreshToken) {
+      this.refreshTokens.set(refreshToken, { expiry: now + this.refreshTokenTTL, user });
+    }
 
     return {
       access_token: accessToken,
       token_type: 'Bearer',
-      expires_in: Math.max(this.accessTokenTTL, 0),
-      refresh_token: refreshToken,
+      ...(this.sendExpiresIn && { expires_in: this.accessTokenTTL }),
+      ...(this.sendRefreshExpiresIn && { refresh_expires_in: this.refreshTokenTTL }),
+      ...(issueRefreshToken && { refresh_token: refreshToken }),
       id_token: idToken,
       scope: 'openid'
     };

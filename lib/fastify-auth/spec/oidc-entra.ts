@@ -93,7 +93,7 @@ describe('OIDC authentication with Entra ID', () => {
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
   });
 
-  it.skip('signs the user in with the ID token\'s claims (#493, #494)', async () => {
+  it.skip('signs the user in with the ID token\'s claims (#494)', async () => {
     const { callback } = await signIn(app, op, jar, alice);
 
     expect(callback.statusCode).toBe(302);
@@ -108,7 +108,7 @@ describe('OIDC authentication with Entra ID', () => {
     });
   });
 
-  it.skip('renews an expired access token with the opaque refresh token (#493, #494)', async () => {
+  it.skip('renews an expired access token with the opaque refresh token (#494)', async () => {
     await signIn(app, op, jar, alice);
 
     const before = op.tokenRequests.length;

@@ -6,7 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
-import { createApp as _createApp, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
+import { createApp as _createApp, later, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
+import { SessionStore } from '../src/index.js';
 import { basicCredentials, decodeJwt } from './helpers/common.js';
 import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
 
@@ -47,8 +48,6 @@ describe('OIDC authentication', () => {
 
     beforeEach(() => {
       jar = {};
-      op.accessTokenTTL = 300;
-      op.refreshTokenTTL = 1800;
       op.tokenRequests.length = 0;
       op.userinfoRequests.length = 0;
     });
@@ -217,25 +216,31 @@ describe('OIDC authentication', () => {
           roles: [ 'admin', `${clientId}:editor` ],
           accessTokenValid: true,
           refreshTokenValid: true,
-          idTokenValid: true,
-          userinfo: {
-            sub: alice.sub,
-            preferred_username: 'alice',
-            email: 'alice@example.com'
-          }
+          idTokenValid: true
         });
         expect(user.accessToken).toEqual(expect.any(String));
         expect(user.refreshToken).toEqual(expect.any(String));
         expect(user.idToken).toEqual(expect.any(String));
       });
 
-      it('renews an expired access token using the refresh token', async () => {
-        op.accessTokenTTL = -10;
+      it('takes token expiry times from the token response', async () => {
+        const start = Math.floor(Date.now() / 1000);
         await signIn(app, op, jar);
-        op.accessTokenTTL = 300;
+
+        const user = await whoami(app, jar);
+
+        expect(user.accessTokenExp - start).toBeGreaterThanOrEqual(op.accessTokenTTL);
+        expect(user.accessTokenExp - start).toBeLessThanOrEqual(op.accessTokenTTL + 1);
+        expect(user.refreshTokenExp - start).toBeGreaterThanOrEqual(op.refreshTokenTTL);
+        expect(user.refreshTokenExp - start).toBeLessThanOrEqual(op.refreshTokenTTL + 1);
+        expect(new Date(user.expiry).getTime()).toBe(user.refreshTokenExp * 1000);
+      });
+
+      it('renews an expired access token using the refresh token', async () => {
+        await signIn(app, op, jar);
 
         const before = op.tokenRequests.length;
-        const user = await whoami(app, jar);
+        const user = await later(op.accessTokenTTL, () => whoami(app, jar));
 
         expect(op.tokenRequests).toHaveLength(before + 1);
 
@@ -250,22 +255,36 @@ describe('OIDC authentication', () => {
       });
 
       it('signs the user out when the refresh token has also expired', async () => {
-        op.accessTokenTTL = -10;
-        op.refreshTokenTTL = -10;
         await signIn(app, op, jar);
 
         const before = op.tokenRequests.length;
 
-        expect(await whoami(app, jar)).toBeNull();
+        expect(await later(op.refreshTokenTTL, () => whoami(app, jar))).toBeNull();
         expect(op.tokenRequests).toHaveLength(before);
       });
 
       it('signs the user out when the provider refuses to renew the token', async () => {
-        op.accessTokenTTL = -10;
         await signIn(app, op, jar);
         op.revokeRefreshTokens();
 
-        expect(await whoami(app, jar)).toBeNull();
+        expect(await later(op.accessTokenTTL, () => whoami(app, jar))).toBeNull();
+      });
+
+      it('keeps the refresh token when the provider does not issue a new one', async () => {
+        op.rotateRefreshTokens = false;
+
+        try {
+          await signIn(app, op, jar);
+
+          const first = await later(op.accessTokenTTL, () => whoami(app, jar));
+          const second = await later(op.accessTokenTTL * 2, () => whoami(app, jar));
+
+          expect(first).toMatchObject({ username: 'alice', accessTokenValid: true });
+          expect(second).toMatchObject({ username: 'alice', accessTokenValid: true, refreshToken: first.refreshToken });
+          expect(op.tokenRequests.filter(({ params }) => params.grant_type === 'refresh_token')).toHaveLength(2);
+        } finally {
+          op.rotateRefreshTokens = true;
+        }
       });
     });
 
@@ -308,6 +327,151 @@ describe('OIDC authentication', () => {
 
         expect(await whoami(app, jar)).toBeNull();
       });
+    });
+  });
+
+  describe('with a server-side session', () => {
+    let op: MockOIDCProvider;
+    let app: FastifyInstance;
+
+    beforeAll(async () => {
+      op = new MockOIDCProvider({ clientId, clientSecret });
+      await op.start();
+      app = await createApp(op.issuer, {
+        clientSecret,
+        session: {
+          store: SessionStore.Memory,
+          cookies: { secret: 'a-secret-that-is-at-least-32-characters-long' }
+        }
+      });
+    });
+
+    afterAll(async () => {
+      await app.close();
+      await op.stop();
+    });
+
+    it('keeps the userinfo and the token expiry times', async () => {
+      const jar: Jar = {};
+      await signIn(app, op, jar);
+
+      expect(await whoami(app, jar)).toMatchObject({
+        username: 'alice',
+        accessTokenExp: expect.any(Number),
+        refreshTokenExp: expect.any(Number),
+        userinfo: {
+          sub: alice.sub,
+          preferred_username: 'alice',
+          email: 'alice@example.com'
+        }
+      });
+    });
+  });
+
+  describe('with opaque access and refresh tokens', () => {
+    let op: MockOIDCProvider;
+    let app: FastifyInstance;
+    let jar: Jar;
+
+    beforeAll(async () => {
+      op = new MockOIDCProvider({ clientId, clientSecret });
+      op.opaqueTokens = true;
+      await op.start();
+      app = await createApp(op.issuer, { clientSecret });
+    });
+
+    afterAll(async () => {
+      await app.close();
+      await op.stop();
+    });
+
+    beforeEach(() => {
+      jar = {};
+      op.sendRefreshExpiresIn = true;
+      op.tokenRequests.length = 0;
+    });
+
+    it('signs the user in from the ID token and userinfo', async () => {
+      const { callback } = await signIn(app, op, jar);
+
+      expect(callback.statusCode).toBe(302);
+      expect(await whoami(app, jar)).toMatchObject({
+        id: alice.sub,
+        username: 'alice',
+        accessTokenValid: true,
+        refreshTokenValid: true
+      });
+    });
+
+    it('renews an expired access token using the refresh token', async () => {
+      await signIn(app, op, jar);
+
+      expect(await later(op.accessTokenTTL, () => whoami(app, jar))).toMatchObject({ username: 'alice', accessTokenValid: true });
+      expect(op.tokenRequests.at(-1)?.params.grant_type).toBe('refresh_token');
+    });
+
+    describe('when the refresh token\'s lifetime is unknown', () => {
+      beforeEach(() => {
+        op.sendRefreshExpiresIn = false;
+      });
+
+      it('leaves the session\'s expiry unknown', async () => {
+        await signIn(app, op, jar);
+
+        expect((await whoami(app, jar)).expiry).toBeUndefined();
+      });
+
+      it('tries the refresh token until the provider refuses it', async () => {
+        await signIn(app, op, jar);
+
+        const before = op.tokenRequests.length;
+
+        expect(await later(op.refreshTokenTTL, () => whoami(app, jar))).toBeNull();
+        expect(op.tokenRequests[before]?.params.grant_type).toBe('refresh_token');
+      });
+    });
+  });
+
+  describe('when the provider leaves out expires_in', () => {
+    let op: MockOIDCProvider;
+    let app: FastifyInstance;
+    let logs: string[];
+
+    beforeAll(async () => {
+      op = new MockOIDCProvider({ clientId, clientSecret });
+      op.sendExpiresIn = false;
+      await op.start();
+      logs = [];
+      app = await createApp(op.issuer, { clientSecret, logs });
+    });
+
+    afterAll(async () => {
+      await app.close();
+      await op.stop();
+    });
+
+    beforeEach(() => {
+      op.opaqueTokens = false;
+      op.tokenRequests.length = 0;
+    });
+
+    it('takes the access token\'s expiry from the token itself', async () => {
+      const jar: Jar = {};
+      await signIn(app, op, jar);
+
+      expect(await whoami(app, jar)).toMatchObject({ username: 'alice', accessTokenValid: true });
+      expect(op.tokenRequests).toHaveLength(1);
+    });
+
+    it('treats an opaque access token as expired, and warns', async () => {
+      const jar: Jar = {};
+      op.opaqueTokens = true;
+      await signIn(app, op, jar);
+
+      await whoami(app, jar);
+
+      expect(op.tokenRequests.at(-1)?.params.grant_type).toBe('refresh_token');
+      expect(logs).toContain('Identity provider did not say when the access token expires; treating it as expired');
     });
   });
 

@@ -1,7 +1,8 @@
 import type { AuthBagger, Deserialize, Maybe, SubRouteHandlerMethod, Serialize, UserProfile } from './common.js';
 
+import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyError } from '@fastify/error';
-import type { DiscoveryRequestOptions } from 'openid-client';
+import type { DiscoveryRequestOptions, TokenEndpointResponse } from 'openid-client';
 
 import {
   AuthorizationResponseError,
@@ -33,12 +34,18 @@ export type Options = {
   redirectUri: string
 };
 
-export type AuthInfo = UserProfile & {
+// Token expiry times are in seconds since the epoch, like a JWT's `exp`
+type Tokens = {
   accessToken?: string
-  accessTokenValid?: boolean
+  accessTokenExp?: number
   refreshToken?: string
-  refreshTokenValid?: boolean
+  refreshTokenExp?: number
   idToken?: string
+};
+
+export type AuthInfo = UserProfile & Tokens & {
+  accessTokenValid?: boolean
+  refreshTokenValid?: boolean
   idTokenValid?: boolean
   userinfo?: object
 };
@@ -105,43 +112,58 @@ const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
 );
 
-export const oidc: AuthBagger<Options> = async ({
-  clientId,
-  clientSecret,
-  issuer,
-  redirectUri: _redirectUri
-}, fullSessions, log) => {
-  const redirectUri = _redirectUri + '/auth/callback'
-  const server = new URL(issuer);
-  const execute: DiscoveryRequestOptions['execute'] = [];
+const now = () => Math.floor(Date.now() / 1000);
 
-  if (server.protocol === 'http:') {
-    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
-    log.warn('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
-    execute.push(allowInsecureRequests);
-  }
-
-  const clientAuth = (
-    clientSecret
-      ? ClientSecretBasic(clientSecret)
-      : None()
-  );
-  const discoveryOptions: DiscoveryRequestOptions = {
-    execute,
-    timeout: 5 // seconds
+// Reads tokens as at a single moment, so that a request sees one consistent time
+const tokenReader = (now: number, log: FastifyBaseLogger) => {
+  // Access and refresh tokens may be opaque. Only ID tokens are always JWTs.
+  const jwtClaims = (token?: string): Record<string, any> => {
+    try {
+      return token && JSON.parse(base64UrlDecode(token.split('.')[1])) || {};
+    } catch {
+      return {};
+    }
   };
-  const config = await discovery(server, clientId, undefined, clientAuth, discoveryOptions);
 
-  const authInfo = (accessToken?: string, refreshToken?: string, idToken?: string, userinfo: object = {}): AuthInfo => {
-    const extractJWTClaims = (token?: string) => token && JSON.parse(
-      base64UrlDecode(
-        token.split('.')[1]
-      )
-    ) || {};
-    const accessClaims = extractJWTClaims(accessToken);
-    const idClaims = extractJWTClaims(idToken);
-    const refreshClaims = extractJWTClaims(refreshToken);
-    const data = {
+  const tokens = (
+    {
+      access_token: accessToken,
+      expires_in: expiresIn,
+      refresh_token: refreshToken,
+      refresh_expires_in: refreshExpiresIn,
+      id_token: idToken
+    }: TokenEndpointResponse,
+    previous: Tokens = {}
+  ): Tokens => {
+    const accessTokenExp = (
+      expiresIn !== undefined
+        ? now + expiresIn
+        : jwtClaims(accessToken).exp
+    );
+    // Keycloak gives offline tokens a `refresh_expires_in` of 0
+    const refreshTokenExp = (
+      typeof refreshExpiresIn === 'number' && refreshExpiresIn > 0
+        ? now + refreshExpiresIn
+        : jwtClaims(refreshToken).exp
+    );
+
+    if (accessTokenExp === undefined) {
+      log.warn('Identity provider did not say when the access token expires; treating it as expired');
+    }
+
+    return {
+      accessToken,
+      accessTokenExp,
+      refreshToken: refreshToken || previous.refreshToken,
+      refreshTokenExp: refreshToken ? refreshTokenExp : previous.refreshTokenExp,
+      idToken: idToken || previous.idToken
+    };
+  };
+
+  const authInfo = ({ accessToken, accessTokenExp, refreshToken, refreshTokenExp, idToken }: Tokens, userinfo: object = {}): AuthInfo => {
+    const accessClaims = jwtClaims(accessToken);
+    const idClaims = jwtClaims(idToken);
+    const data: Record<string, any> = {
       ...accessClaims,
       ...idClaims,
       ...userinfo,
@@ -150,9 +172,18 @@ export const oidc: AuthBagger<Options> = async ({
       idToken,
       userinfo
     };
-    const expiry = new Date((refreshClaims.exp || accessClaims.exp) * 1000);
+    // An unknown refresh token lifetime leaves the session's expiry unknown
+    const sessionExp = (
+      refreshToken
+        ? refreshTokenExp
+        : accessTokenExp
+    );
+    const expiry = (
+      sessionExp === undefined
+        ? undefined
+        : new Date(sessionExp * 1000)
+    );
 
-    const now = Math.floor(Date.now() / 1000);
     const isValid = ({
       nbf = 0,
       exp = 0
@@ -160,8 +191,10 @@ export const oidc: AuthBagger<Options> = async ({
       ( nbf <= now ) && ( now < exp )
     );
 
-    const accessTokenValid = isValid(accessClaims);
-    const refreshTokenValid = isValid(refreshClaims);
+    // An access token without a known expiry is treated as expired
+    const accessTokenValid = accessTokenExp !== undefined && now < accessTokenExp;
+    // A refresh token without a known expiry is usable until the provider refuses it
+    const refreshTokenValid = !!refreshToken && (refreshTokenExp === undefined || now < refreshTokenExp);
     const idTokenValid = isValid(idClaims);
 
     return {
@@ -191,8 +224,10 @@ export const oidc: AuthBagger<Options> = async ({
         ...(Object.entries(data.resource_access || {}).reduce(resourceToRoles, []))
       ].filter(id),
       accessToken: data.accessToken,
+      accessTokenExp,
       accessTokenValid,
       refreshToken: data.refreshToken,
+      refreshTokenExp,
       refreshTokenValid,
       idToken: data.idToken,
       idTokenValid,
@@ -200,6 +235,36 @@ export const oidc: AuthBagger<Options> = async ({
       expiry
     };
   };
+
+  return { tokens, authInfo };
+};
+
+export const oidc: AuthBagger<Options> = async ({
+  clientId,
+  clientSecret,
+  issuer,
+  redirectUri: _redirectUri
+}, fullSessions, log) => {
+  const redirectUri = _redirectUri + '/auth/callback'
+  const server = new URL(issuer);
+  const execute: DiscoveryRequestOptions['execute'] = [];
+
+  if (server.protocol === 'http:') {
+    // Permit plain HTTP when explicitly configured (e.g. a local Keycloak)
+    log.warn('OIDC issuer is not using HTTPS; credentials and tokens could be intercepted!');
+    execute.push(allowInsecureRequests);
+  }
+
+  const clientAuth = (
+    clientSecret
+      ? ClientSecretBasic(clientSecret)
+      : None()
+  );
+  const discoveryOptions: DiscoveryRequestOptions = {
+    execute,
+    timeout: 5 // seconds
+  };
+  const config = await discovery(server, clientId, undefined, clientAuth, discoveryOptions);
 
   const serialize: Serialize<AuthInfo> = (user, req) => {
     if (fullSessions) {
@@ -216,7 +281,9 @@ export const oidc: AuthBagger<Options> = async ({
       );
       const payload = {
         accessToken: user.accessToken,
+        accessTokenExp: user.accessTokenExp,
         refreshToken: user.refreshToken,
+        refreshTokenExp: user.refreshTokenExp,
         idToken: user.idToken,
         userinfo: user.userinfo
       };
@@ -234,7 +301,9 @@ export const oidc: AuthBagger<Options> = async ({
           if (smallEnough(payload)) {
             return payload;
           } else {
-            delete payload.refreshToken; // This will cut short the user's session
+            // This will cut short the user's session
+            delete payload.refreshToken;
+            delete payload.refreshTokenExp;
 
             req.log.warn('Cannot fit refresh token in session; session will expire early');
             return payload;
@@ -247,13 +316,23 @@ export const oidc: AuthBagger<Options> = async ({
   const deserialize: Deserialize<AuthInfo> = async (
     {
       accessToken,
+      accessTokenExp,
       refreshToken,
+      refreshTokenExp,
       idToken,
       userinfo
     },
     req
   ) => {
-    const user: AuthInfo = authInfo(accessToken, refreshToken, idToken, userinfo || {});
+    const { tokens, authInfo } = tokenReader(now(), req.log);
+    const currentTokens = {
+      accessToken,
+      accessTokenExp,
+      refreshToken,
+      refreshTokenExp,
+      idToken
+    };
+    const user: AuthInfo = authInfo(currentTokens, userinfo || {});
 
     if (user.username && user.accessTokenValid) {
       return user;
@@ -263,7 +342,8 @@ export const oidc: AuthBagger<Options> = async ({
         const tokenSet = await refreshTokenGrant(config, refreshToken);
 
         req.log.info('Obtained new access token');
-        const newUser: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo || {});
+        const newTokens = tokens(tokenSet, currentTokens);
+        const newUser: AuthInfo = authInfo(newTokens, userinfo || {});
 
         if (newUser.username && newUser.accessTokenValid) {
           return newUser;
@@ -309,6 +389,7 @@ export const oidc: AuthBagger<Options> = async ({
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
   const callback: SubRouteHandlerMethod = async (req, reply) => {
+    const { tokens, authInfo } = tokenReader(now(), req.log);
     const sessionObj = (req.session.oidc || {}) as SessionObj;
     delete req.session.oidc;
 
@@ -334,7 +415,8 @@ export const oidc: AuthBagger<Options> = async ({
         pkceCodeVerifier: codeVerifier
       });
       const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
-      const user: AuthInfo = authInfo(tokenSet.access_token, tokenSet.refresh_token, tokenSet.id_token, userinfo);
+      const newTokens = tokens(tokenSet);
+      const user: AuthInfo = authInfo(newTokens, userinfo);
 
       if (user.username) {
         req.user = user;
