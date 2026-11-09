@@ -65,7 +65,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
   });
 
-  it.skip('authenticates with private_key_jwt (#490, #496)', async () => {
+  it.skip('authenticates with private_key_jwt (#496)', async () => {
     await signIn(app, op, jar, alice);
 
     const [ { authorization, userAgent, params } ] = op.tokenRequests;
@@ -76,7 +76,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(decodeJwt(params.client_assertion).payload).toMatchObject({ iss: clientId, sub: clientId });
   });
 
-  it.skip('signs the user in with their email address as their username (#490, #493, #494, #496)', async () => {
+  it.skip('signs the user in with their email address as their username (#494, #496)', async () => {
     const { callback } = await signIn(app, op, jar, alice);
 
     expect(callback.statusCode).toBe(302);
@@ -89,7 +89,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     });
   });
 
-  it.skip('signs the user back in through One Login once their access token expires (#490, #493, #494, #495, #496)', async () => {
+  it.skip('signs the user back in through One Login once their access token expires (#494, #495, #496)', async () => {
     await signIn(app, op, jar, alice);
 
     await later(op.accessTokenTTL, async () => {
@@ -128,7 +128,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
   });
 
-  it.skip('sends id_token_hint with post_logout_redirect_uri (#490, #491, #493, #494, #496)', async () => {
+  it.skip('sends id_token_hint with post_logout_redirect_uri (#494, #496)', async () => {
     await signIn(app, op, jar, alice);
 
     const res = await signOut(app, jar);
