@@ -8,7 +8,7 @@ const config = {
     '<rootDir>/app/**.{ts,tsx}',
   ],
   testMatch: [
-    '<rootDir>/spec/**.{ts,tsx}'
+    '<rootDir>/spec/**/*.{ts,tsx}'
   ]
 };
 

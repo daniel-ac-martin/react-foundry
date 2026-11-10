@@ -3,9 +3,11 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+import type { KeyObject } from 'node:crypto';
 import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
+import { generateKeyPairSync } from 'node:crypto';
 import { createApp as _createApp, later, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
 import { SessionStore } from '../src/index.js';
 import { basicCredentials, decodeJwt } from './helpers/common.js';
@@ -500,6 +502,71 @@ describe('OIDC authentication', () => {
       expect(params.client_id).toBe(clientId);
       expect(params.client_secret).toBeUndefined();
       expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+    });
+  });
+
+  describe('with a private key', () => {
+    const rsaKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pem = (key: KeyObject) => key.export({ format: 'pem', type: 'pkcs8' }) as string;
+    let op: MockOIDCProvider;
+    let app: FastifyInstance;
+
+    const start = async () => {
+      op = new MockOIDCProvider({ clientId, clientPublicKey: rsaKeys.publicKey });
+      await op.start();
+      app = await createApp(op.issuer, { extra: { clientPrivateKey: pem(rsaKeys.privateKey) } });
+    };
+
+    const assertion = async () => {
+      const jar: Jar = {};
+      await signIn(app, op, jar);
+
+      const [ { authorization, params } ] = op.tokenRequests;
+
+      expect(authorization).toBeUndefined();
+      expect(params.client_secret).toBeUndefined();
+      expect(params.client_assertion_type).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+      expect(await whoami(app, jar)).toMatchObject({ username: 'alice' });
+
+      return decodeJwt(params.client_assertion);
+    };
+
+    afterEach(async () => {
+      await app?.close();
+      await op?.stop();
+    });
+
+    it('authenticates with private_key_jwt, addressed to the issuer', async () => {
+      await start();
+
+      const { header, payload } = await assertion();
+
+      expect(header.alg).toBe('PS256');
+      expect(header.kid).toBeUndefined();
+      expect(payload).toMatchObject({ iss: clientId, sub: clientId, aud: op.issuer });
+    });
+
+    it('also authenticates when renewing the access token', async () => {
+      await start();
+
+      const jar: Jar = {};
+      await signIn(app, op, jar);
+      const user = await later(op.accessTokenTTL, () => whoami(app, jar));
+      const [ , { params } ] = op.tokenRequests;
+
+      expect(params.grant_type).toBe('refresh_token');
+      expect(params.client_assertion).toBeDefined();
+      expect(user).toMatchObject({ username: 'alice', accessTokenValid: true });
+    });
+
+    it('prefers the private key to a client secret, and warns', async () => {
+      const logs: string[] = [];
+      op = new MockOIDCProvider({ clientId, clientPublicKey: rsaKeys.publicKey });
+      await op.start();
+      app = await createApp(op.issuer, { clientSecret, logs, extra: { clientPrivateKey: pem(rsaKeys.privateKey) } });
+
+      expect((await assertion()).header.alg).toBe('PS256');
+      expect(logs).toContain('OIDC client has both a private key and a secret; using the private key');
     });
   });
 

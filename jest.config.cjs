@@ -9,7 +9,7 @@ const config = {
   ],
   coverageDirectory: '<rootDir>/coverage/',
   collectCoverageFrom: [
-    '<rootDir>/{apps,components,lib}/*/src/**.{ts,tsx}'
+    '<rootDir>/{apps,components,lib}/*/src/**/*.{ts,tsx}'
   ],
   coverageThreshold: {
     global: {

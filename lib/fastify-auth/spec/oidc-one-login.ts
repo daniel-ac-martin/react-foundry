@@ -65,7 +65,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
   });
 
-  it.skip('authenticates with private_key_jwt (#496)', async () => {
+  it('authenticates with private_key_jwt (#496)', async () => {
     await signIn(app, op, jar, alice);
 
     const [ { authorization, userAgent, params } ] = op.tokenRequests;
