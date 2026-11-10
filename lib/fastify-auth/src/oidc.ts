@@ -3,11 +3,13 @@ import type { AuthBagger, Deserialize, Maybe, SubRouteHandlerMethod, Serialize, 
 import type { FastifyBaseLogger } from 'fastify';
 import type { FastifyError } from '@fastify/error';
 import type { DiscoveryRequestOptions, TokenEndpointResponse } from 'openid-client';
+import type { PrivateKeyJwtOptions } from './oidc/private-key-jwt.js';
 
 import {
   AuthorizationResponseError,
   ClientError,
   ClientSecretBasic,
+  Configuration,
   ResponseBodyError,
   None,
   allowInsecureRequests,
@@ -24,6 +26,7 @@ import {
 } from 'openid-client';
 import { createError } from '@fastify/error';
 import { id } from './common.js';
+import { privateKeyJwt } from './oidc/private-key-jwt.js';
 
 // OpenID Connect
 
@@ -31,6 +34,13 @@ export type Options = {
   issuer: string
   clientId: string
   clientSecret?: string
+  // PEM; authenticates the client with `private_key_jwt` instead of a secret
+  clientPrivateKey?: string
+  // PEM; identifies the key by the certificate's thumbprint, as Entra ID requires
+  clientCertificate?: string
+  clientKeyId?: string
+  // Entra ID documents only the token endpoint
+  clientAssertionAudience?: PrivateKeyJwtOptions['audience']
   redirectUri: string
 };
 
@@ -242,6 +252,10 @@ const tokenReader = (now: number, log: FastifyBaseLogger) => {
 export const oidc: AuthBagger<Options> = async ({
   clientId,
   clientSecret,
+  clientPrivateKey,
+  clientCertificate,
+  clientKeyId,
+  clientAssertionAudience,
   issuer,
   redirectUri: _redirectUri
 }, fullSessions, log) => {
@@ -255,16 +269,34 @@ export const oidc: AuthBagger<Options> = async ({
     execute.push(allowInsecureRequests);
   }
 
-  const clientAuth = (
-    clientSecret
-      ? ClientSecretBasic(clientSecret)
-      : None()
-  );
+  if (clientPrivateKey && clientSecret) {
+    log.warn('OIDC client has both a private key and a secret; using the private key');
+  }
+
   const discoveryOptions: DiscoveryRequestOptions = {
     execute,
     timeout: 5 // seconds
   };
-  const config = await discovery(server, clientId, undefined, clientAuth, discoveryOptions);
+  // Client authentication can depend on the provider's metadata, so build the configuration after discovery
+  const discovered = await discovery(server, clientId, undefined, None(), discoveryOptions);
+  const metadata = discovered.serverMetadata();
+  const clientAuth = (
+    clientPrivateKey
+      ? await privateKeyJwt(clientPrivateKey, metadata, {
+        certificate: clientCertificate,
+        kid: clientKeyId,
+        audience: clientAssertionAudience
+      })
+      : (
+        clientSecret
+          ? ClientSecretBasic(clientSecret)
+          : None()
+      )
+  );
+  const config = new Configuration(metadata, clientId, undefined, clientAuth);
+
+  config.timeout = discoveryOptions.timeout;
+  execute.forEach(extension => extension(config));
 
   const serialize: Serialize<AuthInfo> = (user, req) => {
     if (fullSessions) {

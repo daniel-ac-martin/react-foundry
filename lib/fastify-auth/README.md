@@ -84,6 +84,43 @@ using OIDC, it should also contain the `accessToken` for making requests to
 other services on behalf of the user.
 
 
+### OIDC client authentication
+
+The OIDC method authenticates to the identity provider's token endpoint in
+one of three ways, depending on which options are set.
+
+- **`clientPrivateKey`:** Signs a short-lived assertion with a private key
+  (`private_key_jwt`). We recommend this. The provider only holds the public
+  key, so there is no shared secret to leak or rotate. GOV.UK One Login
+  requires it.
+- **`clientSecret`:** Sends a shared secret (`client_secret_basic`).
+- **Neither:** Sends only the client ID, for a public client.
+
+`clientPrivateKey` is a PEM-encoded RSA or EC (P-256, P-384 or P-521) private
+key. RSA keys sign with PS256, or with RS256 when the provider only supports
+that. These options adjust the assertion:
+
+- **`clientCertificate`:** A PEM-encoded certificate for the key. The
+  assertion carries its SHA-256 thumbprint in an `x5t#S256` header, which
+  Microsoft Entra ID uses to find the key.
+- **`clientKeyId`:** Sent as the assertion's `kid` header, for providers that
+  hold more than one of the client's keys.
+- **`clientAssertionAudience: 'issuer' | 'token-endpoint'`:** Who the
+  assertion is addressed to. The default, `'issuer'`, follows current
+  guidance. Microsoft Entra ID only documents `'token-endpoint'`.
+
+For Microsoft Entra ID, upload the certificate to the app registration and
+configure:
+
+```ts
+{
+  clientPrivateKey: process.env.OIDC_CLIENT_PRIVATE_KEY,
+  clientCertificate: process.env.OIDC_CLIENT_CERTIFICATE,
+  clientAssertionAudience: 'token-endpoint'
+}
+```
+
+
 ### OIDC sign-in errors
 
 When an OIDC sign-in fails, the callback responds with one of the following

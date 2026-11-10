@@ -1,6 +1,6 @@
 import type { KeyObject } from 'node:crypto';
 
-import { createHash, sign, verify } from 'node:crypto';
+import { constants, createHash, sign, verify } from 'node:crypto';
 import Fastify from 'fastify';
 
 export const base64url = (v: Buffer | string) => Buffer.from(v).toString('base64url');
@@ -47,12 +47,22 @@ export const decodeJwt = (jwt: string) => {
   return { header, payload };
 };
 
+// Signature options for the algorithms that each key type may use
+const verifiers: Record<string, Record<string, object>> = {
+  ec: { ES256: { dsaEncoding: 'ieee-p1363' } },
+  rsa: {
+    RS256: {},
+    PS256: { padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }
+  }
+};
+
 export const verifyJwt = (jwt: string, key: KeyObject) => {
   const [ header, payload, signature ] = jwt.split('.');
   const decoded = decodeJwt(jwt);
+  const options = verifiers[key.asymmetricKeyType || '']?.[decoded.header.alg];
   const valid = (
-    decoded.header.alg === algorithm(key)
-      && verify('sha256', Buffer.from(`${header}.${payload}`), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))
+    options
+      && verify('sha256', Buffer.from(`${header}.${payload}`), { key, ...options }, Buffer.from(signature, 'base64url'))
   );
 
   return valid ? decoded : undefined;

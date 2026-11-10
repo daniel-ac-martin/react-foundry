@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import type { KeyObject } from 'node:crypto';
 
 import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
-import { base64url, basicCredentials, bearerToken, createServer, sha256, signJwt } from './common.js';
+import { base64url, basicCredentials, bearerToken, checkClientAssertion, createServer, sha256, signJwt } from './common.js';
 
 // A minimal OpenID Provider (in the style of Keycloak) for exercising the OIDC
 // flow without a real identity server.
@@ -14,6 +15,8 @@ export type TokenRequest = {
 export type MockOIDCProviderOptions = {
   clientId: string
   clientSecret?: string
+  // The public half of the client's private_key_jwt key
+  clientPublicKey?: KeyObject
   realm?: string
 };
 
@@ -42,6 +45,7 @@ type IssuedToken = {
 export class MockOIDCProvider {
   readonly clientId: string;
   readonly clientSecret?: string;
+  readonly clientPublicKey?: KeyObject;
   readonly realm: string;
   readonly tokenRequests: TokenRequest[] = [];
   readonly userinfoRequests: Array<{ authorization?: string }> = [];
@@ -53,6 +57,7 @@ export class MockOIDCProvider {
   sendExpiresIn = true;
   sendRefreshExpiresIn = true;
   rotateRefreshTokens = true;
+  readonly clientAssertionAlgorithms = [ 'PS256', 'RS256', 'ES256' ];
   issuer = '';
 
   private readonly httpd: FastifyInstance;
@@ -61,10 +66,12 @@ export class MockOIDCProvider {
   private readonly grants = new Map<string, Grant>();
   private readonly accessTokens = new Map<string, IssuedToken>();
   private readonly refreshTokens = new Map<string, IssuedToken>();
+  private readonly usedAssertionIds = new Set<string>();
 
-  constructor({ clientId, clientSecret, realm = 'test' }: MockOIDCProviderOptions) {
+  constructor({ clientId, clientSecret, clientPublicKey, realm = 'test' }: MockOIDCProviderOptions) {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.clientPublicKey = clientPublicKey;
     this.realm = realm;
     this.httpd = createServer();
 
@@ -80,7 +87,8 @@ export class MockOIDCProvider {
       response_types_supported: [ 'code' ],
       subject_types_supported: [ 'public' ],
       id_token_signing_alg_values_supported: [ 'RS256' ],
-      token_endpoint_auth_methods_supported: [ 'client_secret_basic', 'client_secret_post', 'none' ],
+      token_endpoint_auth_methods_supported: [ 'client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none' ],
+      token_endpoint_auth_signing_alg_values_supported: this.clientAssertionAlgorithms,
       code_challenge_methods_supported: [ 'S256' ]
     }));
 
@@ -184,8 +192,21 @@ export class MockOIDCProvider {
     return signJwt(claims, this.keys.privateKey, { kid: this.kid });
   }
 
+  get tokenEndpoint() {
+    return `${this.issuer}/protocol/openid-connect/token`;
+  }
+
   private clientAuthenticated(authorization: string | undefined, params: Record<string, string>) {
-    if (this.clientSecret) {
+    if (this.clientPublicKey) {
+      const jwt = !authorization && checkClientAssertion(params, {
+        clientId: this.clientId,
+        audiences: [ this.issuer, this.tokenEndpoint ],
+        key: this.clientPublicKey,
+        usedIds: this.usedAssertionIds
+      });
+
+      return !!jwt && this.clientAssertionAlgorithms.includes(jwt.header.alg);
+    } else if (this.clientSecret) {
       const [ id, secret ] = basicCredentials(authorization) || [];
 
       return id === this.clientId && secret === this.clientSecret;
