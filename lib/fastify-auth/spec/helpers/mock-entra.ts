@@ -41,6 +41,8 @@ type Grant = {
 };
 
 const graph = '00000003-0000-0000-c000-000000000000';
+// Scopes that don't name a resource; Entra issues a Graph token for these alone
+const oidcScopes = [ 'openid', 'profile', 'email', 'offline_access' ];
 
 export const certificateThumbprint = (pem: string) => sha256(new X509Certificate(pem).raw);
 
@@ -135,7 +137,7 @@ export class MockEntraProvider {
           return reply.code(400).send({ error: 'invalid_grant' });
         }
 
-        return this.tokenResponse(grant);
+        return this.tokenResponse(grant, params.scope);
       } else if (params.grant_type === 'refresh_token') {
         const grant = this.refreshTokens.get(params.refresh_token);
         this.refreshTokens.delete(params.refresh_token);
@@ -144,7 +146,7 @@ export class MockEntraProvider {
           return reply.code(400).send({ error: 'invalid_grant' });
         }
 
-        return this.tokenResponse({ ...grant, nonce: undefined });
+        return this.tokenResponse({ ...grant, nonce: undefined }, params.scope);
       } else {
         return reply.code(400).send({ error: 'unsupported_grant_type' });
       }
@@ -243,11 +245,19 @@ export class MockEntraProvider {
     }
   }
 
-  private tokenResponse({ nonce, scopes, user }: Grant) {
+  // Issues a token for the resource of the first scope that names one, or for Graph
+  // See: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow#refresh-the-access-token
+  private tokenResponse(grant: Grant, scope?: string) {
+    const { nonce, user } = grant;
+    // Requests may narrow the consented scopes, but not add to them
+    const scopes = scope?.split(' ').filter(v => grant.scopes.includes(v)) || grant.scopes;
+    const apiScopes = scopes.filter(v => v.startsWith('api://'));
+    const api = apiScopes[0]?.replace(/^api:\/\/([^/]+)\/.*$/, '$1');
+    const resourceScopes = apiScopes.filter(v => v.startsWith(`api://${api}/`));
     const now = Math.floor(Date.now() / 1000);
     const sub = this.sub(user);
     const { oid, roles, groups, ...profile } = user;
-    const idToken = signJwt({
+    const idToken = scopes.includes('openid') && signJwt({
       aud: this.clientId,
       iss: this.issuer,
       iat: now,
@@ -266,8 +276,25 @@ export class MockEntraProvider {
       ...(roles && { roles }),
       ...(groups && { groups })
     }, this.keys.privateKey, { kid: this.kid });
+    // A v2.0 token for the app's own API, assuming a single app registration
+    const apiToken = api && signJwt({
+      aud: api,
+      iss: this.issuer,
+      iat: now,
+      nbf: now,
+      exp: now + this.accessTokenTTL,
+      oid,
+      tid: this.tenantId,
+      sub: sha256(`${oid}:${api}`),
+      azp: this.clientId,
+      scp: resourceScopes.map(v => v.replace(/^.*\//, '')).join(' '),
+      name: profile.name,
+      preferred_username: profile.preferred_username,
+      ...(roles && { roles }),
+      ver: '2.0'
+    }, this.keys.privateKey, { kid: this.kid });
     // Graph's tokens carry a `nonce` header, so only Graph can verify them
-    const accessToken = signJwt({
+    const accessToken = apiToken || signJwt({
       aud: graph,
       iss: `https://sts.windows.net/${this.tenantId}/`,
       iat: now,
@@ -276,7 +303,7 @@ export class MockEntraProvider {
       oid,
       tid: this.tenantId,
       sub: sha256(`${oid}:${graph}`),
-      scp: scopes.filter(v => v !== 'offline_access').join(' '),
+      scp: scopes.filter(v => oidcScopes.includes(v) && v !== 'offline_access').join(' '),
       upn: profile.preferred_username,
       unique_name: profile.preferred_username,
       name: profile.name,
@@ -290,17 +317,22 @@ export class MockEntraProvider {
 
     this.accessTokens.set(accessToken, { codeChallenge: '', scopes, user });
 
+    // A refresh token carries all of the consented scopes
     if (refreshToken) {
-      this.refreshTokens.set(refreshToken, { codeChallenge: '', scopes, user });
+      this.refreshTokens.set(refreshToken, { codeChallenge: '', scopes: grant.scopes, user });
     }
 
     return {
       token_type: 'Bearer',
-      scope: decodeJwt(accessToken).payload.scp,
+      scope: (
+        api
+          ? resourceScopes.join(' ')
+          : decodeJwt(accessToken).payload.scp
+      ),
       expires_in: Math.max(this.accessTokenTTL, 0),
       ext_expires_in: Math.max(this.accessTokenTTL, 0),
       access_token: accessToken,
-      id_token: idToken,
+      ...(idToken && { id_token: idToken }),
       ...(refreshToken && { refresh_token: refreshToken })
     };
   }

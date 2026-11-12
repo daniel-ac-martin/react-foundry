@@ -127,11 +127,12 @@ By default, the OIDC method requests the `openid` scope, plus `profile` and
 `email` where the provider's discovery document lists them (or doesn't list
 any scopes).
 
-- **`offlineAccess`:** Also requests `offline_access`. Microsoft Entra ID only
-  issues a refresh token with it. In Keycloak it asks for an offline token,
-  which outlives the user's session with Keycloak.
+- **`extraScopes`:** An array of scopes to request as well as the default
+  ones, such as `offline_access` or an API's scope. Microsoft Entra ID only
+  issues a refresh token with `offline_access`. In Keycloak it asks for an
+  offline token, which outlives the user's session with Keycloak.
 - **`scope`:** Requests exactly these scopes instead, ignoring
-  `offlineAccess`.
+  `extraScopes`.
 
 The user's details are read from the access token (when it's a JWT), the ID
 token and the userinfo response, in that order, with later ones taking
@@ -157,13 +158,41 @@ use the ID rather than the username for authorisation. To get a refresh token:
 
 ```ts
 {
-  offlineAccess: true
+  extraScopes: [ 'offline_access' ]
 }
 ```
 
 GOV.UK One Login needs no configuration. It doesn't support the `profile`
 scope, so the default is `openid email`, and as it has no username, the
 username falls back to the email address.
+
+
+### OIDC access tokens for an API
+
+`req.user.accessToken` is for calling an API on the user's behalf. With
+Keycloak, an audience mapper can address one token to both userinfo and your
+API. Microsoft Entra ID instead issues each token for a single resource, and
+its userinfo endpoint (on Microsoft Graph) only accepts tokens for Graph.
+
+So when the access token's granted scope doesn't include `openid`, meaning
+it's not for userinfo, the OIDC method signs in in two steps:
+
+1. It keeps the access token from the code exchange, for your API.
+2. It uses the refresh token to get a token with just the OpenID Connect
+   scopes, calls userinfo with it, and discards it.
+
+It renews the access token with its own scope, so that it stays a token for
+your API. This needs a refresh token, so request `offline_access` too.
+Otherwise the sign-in fails with `FST_OIDC_NO_USERINFO_TOKEN`.
+
+For Microsoft Entra ID, expose a scope on the API's app registration, and
+set its `requestedAccessTokenVersion` to `2`:
+
+```ts
+{
+  extraScopes: [ 'offline_access', 'api://<api-client-id>/access_as_user' ]
+}
+```
 
 
 ### OIDC sign-in errors
@@ -179,6 +208,9 @@ errors, which your application's error handler can turn into a suitable page.
 - **`FST_BAD_SESSION` (409):** The sign-in session has gone.
 - **`FST_OIDC_PROVIDER_ERROR` (502):** The identity provider rejected one of
   our requests, such as when the client credentials are wrong.
+- **`FST_OIDC_NO_USERINFO_TOKEN` (500):** The access token is for an API
+  rather than userinfo, and there's no refresh token to get one for
+  userinfo. Request `offline_access`.
 
 
 Working on this package
