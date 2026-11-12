@@ -22,13 +22,16 @@ export type MockOIDCProviderOptions = {
 
 export type MockUser = {
   sub: string
-  preferred_username: string
+  preferred_username?: string
   name?: string
   given_name?: string
   family_name?: string
   email?: string
   realm_access?: { roles: string[] }
   resource_access?: Record<string, { roles: string[] }>
+  groups?: string[]
+  // Added to the ID token only
+  idTokenClaims?: Record<string, unknown>
 };
 
 type Grant = {
@@ -57,6 +60,7 @@ export class MockOIDCProvider {
   sendExpiresIn = true;
   sendRefreshExpiresIn = true;
   rotateRefreshTokens = true;
+  scopesSupported?: string[] = [ 'openid', 'profile', 'email', 'address', 'phone', 'offline_access', 'roles', 'web-origins', 'acr', 'basic' ];
   readonly clientAssertionAlgorithms = [ 'PS256', 'RS256', 'ES256' ];
   issuer = '';
 
@@ -89,7 +93,8 @@ export class MockOIDCProvider {
       id_token_signing_alg_values_supported: [ 'RS256' ],
       token_endpoint_auth_methods_supported: [ 'client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none' ],
       token_endpoint_auth_signing_alg_values_supported: this.clientAssertionAlgorithms,
-      code_challenge_methods_supported: [ 'S256' ]
+      code_challenge_methods_supported: [ 'S256' ],
+      ...(this.scopesSupported && { scopes_supported: this.scopesSupported })
     }));
 
     this.httpd.get(`${prefix}/protocol/openid-connect/certs`, async () => ({
@@ -223,9 +228,10 @@ export class MockOIDCProvider {
       sub: user.sub,
       iat: now - 1
     };
+    const { idTokenClaims, ...claims } = user;
     const accessToken = this.opaqueTokens ? opaque() : this.jwt({
       ...common,
-      ...user,
+      ...claims,
       aud: 'account',
       azp: this.clientId,
       exp: now + this.accessTokenTTL,
@@ -243,7 +249,8 @@ export class MockOIDCProvider {
       azp: this.clientId,
       exp: now + 300,
       ...(nonce && { nonce }),
-      preferred_username: user.preferred_username
+      preferred_username: user.preferred_username,
+      ...idTokenClaims
     });
 
     this.accessTokens.set(accessToken, { expiry: now + this.accessTokenTTL, user });
