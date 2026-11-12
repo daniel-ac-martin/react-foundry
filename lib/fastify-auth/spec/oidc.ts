@@ -593,12 +593,12 @@ describe('OIDC authentication', () => {
       expect(await requestedScope(undefined)).toBe('openid profile email');
     });
 
-    it('adds offline access when asked', async () => {
-      expect(await requestedScope(undefined, { offlineAccess: true })).toBe('openid profile email offline_access');
+    it('adds the extra scopes to the default ones', async () => {
+      expect(await requestedScope(undefined, { extraScopes: [ 'offline_access' ] })).toBe('openid profile email offline_access');
     });
 
-    it('requests the configured scopes', async () => {
-      expect(await requestedScope(undefined, { scope: 'openid', offlineAccess: true })).toBe('openid');
+    it('requests only the configured scopes', async () => {
+      expect(await requestedScope(undefined, { scope: 'openid', extraScopes: [ 'offline_access' ] })).toBe('openid');
     });
   });
 

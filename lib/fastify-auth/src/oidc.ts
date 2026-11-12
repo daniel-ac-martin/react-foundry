@@ -44,8 +44,8 @@ export type Options = {
   redirectUri: string
   // Defaults to `openid`, plus `profile` and `email` where the provider supports them
   scope?: string
-  // Adds `offline_access` to the default scopes, for a refresh token from providers such as Entra ID
-  offlineAccess?: boolean
+  // Added to the default scopes, e.g. `offline_access` or an API's scope; ignored with `scope`
+  extraScopes?: string[]
   claims?: ClaimNames
 };
 
@@ -62,6 +62,8 @@ type Tokens = {
   refreshToken?: string
   refreshTokenExp?: number
   idToken?: string
+  // The access token's scope, when it isn't for userinfo (e.g. it's for an API)
+  accessTokenScope?: string
 };
 
 export type AuthInfo = UserProfile & Tokens & {
@@ -97,6 +99,7 @@ const BadSession = createError('FST_BAD_SESSION', 'Unable to verify session', 40
 const NotSignedIn = createError('FST_OIDC_NOT_SIGNED_IN', 'The identity provider did not sign the user in: %s', 401);
 const BadCallback = createError('FST_OIDC_BAD_CALLBACK', 'The sign-in response does not match the sign-in request', 400);
 const ProviderError = createError('FST_OIDC_PROVIDER_ERROR', 'The identity provider rejected a request: %s', 502);
+const NoUserinfoToken = createError('FST_OIDC_NO_USERINFO_TOKEN', 'The access token is not for userinfo, and there is no refresh token to get one; request the offline_access scope', 500);
 
 // The claim that failed a comparison, which openid-client nests two causes deep
 const failedClaim = (err: ClientError) => {
@@ -145,6 +148,10 @@ const unique = <T>(v: T[]): T[] => [ ...new Set(v) ];
 // The standard scopes for the user's profile claims
 const desiredScopes = [ 'profile', 'email' ];
 
+// The scopes that OpenID Connect defines, which a token for userinfo can carry
+// See: https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims
+const oidcScopes = [ 'openid', 'profile', 'email', 'address', 'phone', 'offline_access' ];
+
 const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
 );
@@ -170,7 +177,8 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
       expires_in: expiresIn,
       refresh_token: refreshToken,
       refresh_expires_in: refreshExpiresIn,
-      id_token: idToken
+      id_token: idToken,
+      scope
     }: TokenEndpointResponse,
     previous: Tokens = {}
   ): Tokens => {
@@ -186,6 +194,11 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
         : jwtClaims(refreshToken).exp
     );
 
+    // A response without a scope has the one requested (RFC 6749 §5.1), which is the previous token's on renewal
+    const grantedScope = scope ?? previous.accessTokenScope;
+    // Userinfo expects a token from an OpenID Connect request, which has the `openid` scope
+    const forUserinfo = grantedScope === undefined || grantedScope.split(' ').includes('openid');
+
     if (accessTokenExp === undefined) {
       log.warn('Identity provider did not say when the access token expires; treating it as expired');
     }
@@ -195,7 +208,12 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
       accessTokenExp,
       refreshToken: refreshToken || previous.refreshToken,
       refreshTokenExp: refreshToken ? refreshTokenExp : previous.refreshTokenExp,
-      idToken: idToken || previous.idToken
+      idToken: idToken || previous.idToken,
+      accessTokenScope: (
+        forUserinfo
+          ? undefined
+          : grantedScope
+      )
     };
   };
 
@@ -205,7 +223,8 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
       accessTokenExp,
       refreshToken,
       refreshTokenExp,
-      idToken
+      idToken,
+      accessTokenScope
     } = tokens;
     const accessClaims = jwtClaims(accessToken);
     const idClaims = jwtClaims(idToken);
@@ -295,6 +314,7 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
       refreshTokenValid,
       idToken: data.idToken,
       idTokenValid,
+      accessTokenScope,
       userinfo: data.userinfo,
       expiry
     };
@@ -313,7 +333,7 @@ export const oidc: AuthBagger<Options> = async ({
   issuer,
   redirectUri: _redirectUri,
   scope: _scope,
-  offlineAccess,
+  extraScopes = [],
   claims
 }, fullSessions, log) => {
   const redirectUri = _redirectUri + '/auth/callback'
@@ -357,18 +377,33 @@ export const oidc: AuthBagger<Options> = async ({
 
   // Ask for the standard profile claims where the provider supports them, or doesn't say
   const scopesSupported = metadata.scopes_supported;
-  const extraScopes = desiredScopes.filter(v => (
+  const availableScopes = desiredScopes.filter(v => (
     !scopesSupported || scopesSupported.includes(v)
   ));
   const scope = _scope || [
     'openid',
-    ...extraScopes,
-    ...(
-      offlineAccess
-        ? [ 'offline_access' ]
-        : []
-    )
+    ...availableScopes,
+    ...extraScopes
   ].join(' ');
+  const userinfoScope = (
+    scope
+      .split(' ')
+      .filter(v => oidcScopes.includes(v))
+      .join(' ')
+  );
+
+  // A token for an API can't be used for userinfo, so use the refresh token to get one that can
+  const tokensForUserinfo = async (tokenSet: TokenEndpointResponse, current: Tokens) => {
+    const { accessTokenScope, refreshToken } = current;
+
+    if (accessTokenScope === undefined) {
+      return tokenSet;
+    } else if (refreshToken) {
+      return refreshTokenGrant(config, refreshToken, { scope: userinfoScope });
+    } else {
+      throw new NoUserinfoToken();
+    }
+  };
 
   const serialize: Serialize<AuthInfo> = (user, req) => {
     if (fullSessions) {
@@ -389,6 +424,7 @@ export const oidc: AuthBagger<Options> = async ({
         refreshToken: user.refreshToken,
         refreshTokenExp: user.refreshTokenExp,
         idToken: user.idToken,
+        accessTokenScope: user.accessTokenScope,
         userinfo: user.userinfo
       };
 
@@ -424,6 +460,7 @@ export const oidc: AuthBagger<Options> = async ({
       refreshToken,
       refreshTokenExp,
       idToken,
+      accessTokenScope,
       userinfo
     },
     req
@@ -434,7 +471,8 @@ export const oidc: AuthBagger<Options> = async ({
       accessTokenExp,
       refreshToken,
       refreshTokenExp,
-      idToken
+      idToken,
+      accessTokenScope
     };
     const user: AuthInfo = authInfo(currentTokens, userinfo || {});
 
@@ -443,7 +481,13 @@ export const oidc: AuthBagger<Options> = async ({
     } else if (!user.accessTokenValid && refreshToken && user.refreshTokenValid) {
       // The access token has expired, let's try to get a new one
       try {
-        const tokenSet = await refreshTokenGrant(config, refreshToken);
+        // Renew a token for an API with that API's scope, rather than the ones we signed in with
+        const parameters = (
+          accessTokenScope
+            ? { scope: accessTokenScope }
+            : undefined
+        );
+        const tokenSet = await refreshTokenGrant(config, refreshToken, parameters);
 
         req.log.info('Obtained new access token');
         const newTokens = tokens(tokenSet, currentTokens);
@@ -517,8 +561,20 @@ export const oidc: AuthBagger<Options> = async ({
         idTokenExpected: true,
         pkceCodeVerifier: codeVerifier
       });
-      const userinfo = await fetchUserInfo(config, tokenSet.access_token, tokenSet.claims()!.sub);
-      const newTokens = tokens(tokenSet);
+      const codeTokens = tokens(tokenSet);
+      const userinfoTokenSet = await tokensForUserinfo(tokenSet, codeTokens);
+      const userinfo = await fetchUserInfo(config, userinfoTokenSet.access_token, tokenSet.claims()!.sub);
+      // Keep the access token from the code exchange, with the latest refresh token
+      const latestTokens = (
+        userinfoTokenSet === tokenSet
+          ? codeTokens
+          : tokens(userinfoTokenSet, codeTokens)
+      );
+      const newTokens = {
+        ...codeTokens,
+        refreshToken: latestTokens.refreshToken,
+        refreshTokenExp: latestTokens.refreshTokenExp
+      };
       const user: AuthInfo = authInfo(newTokens, userinfo);
 
       if (user.username) {
