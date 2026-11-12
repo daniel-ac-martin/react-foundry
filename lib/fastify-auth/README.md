@@ -121,6 +121,51 @@ configure:
 ```
 
 
+### OIDC scopes and claims
+
+By default, the OIDC method requests the `openid` scope, plus `profile` and
+`email` where the provider's discovery document lists them (or doesn't list
+any scopes).
+
+- **`offlineAccess`:** Also requests `offline_access`. Microsoft Entra ID only
+  issues a refresh token with it. In Keycloak it asks for an offline token,
+  which outlives the user's session with Keycloak.
+- **`scope`:** Requests exactly these scopes instead, ignoring
+  `offlineAccess`.
+
+The user's details are read from the access token (when it's a JWT), the ID
+token and the userinfo response, in that order, with later ones taking
+precedence. **`claims`** says which claims hold the user's ID and username:
+
+- **`id`:** Defaults to `oid` where present, otherwise `sub`. When set, only
+  that claim is used.
+- **`username`:** Defaults to the first of `username`, `preferred_username`,
+  `email` and `sub`. When set, only that claim is used, and a user without it
+  isn't signed in. Set it explicitly if you use the username for
+  authorisation, as the default can differ between providers.
+
+`roles` combines `roles`, `realm_access.roles` and `resource_access.*.roles`
+(prefixed with the client's ID), and `groups` combines `groups`, from all of
+these sources.
+
+For Microsoft Entra ID, the default ID is `oid`, which is the same in every
+app and is the user's ID in Microsoft Graph. `sub` differs between apps, so set
+`claims.id` to `'sub'` if you don't want apps to be able to correlate users.
+Entra only sends `oid` with the `profile` scope, so keep `profile` if you set
+`scope`, or the ID quietly becomes `sub`. `preferred_username` can change, so
+use the ID rather than the username for authorisation. To get a refresh token:
+
+```ts
+{
+  offlineAccess: true
+}
+```
+
+GOV.UK One Login needs no configuration. It doesn't support the `profile`
+scope, so the default is `openid email`, and as it has no username, the
+username falls back to the email address.
+
+
 ### OIDC sign-in errors
 
 When an OIDC sign-in fails, the callback responds with one of the following

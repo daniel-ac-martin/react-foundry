@@ -2,9 +2,6 @@
  * @jest-environment node
  */
 
-// Skipped tests wait on the issues in their names. The options they pass are
-// provisional until those issues settle them.
-
 import type { FastifyInstance } from 'fastify';
 import type { Jar } from './helpers/app.js';
 import type { MockEntraUser } from './helpers/mock-entra.js';
@@ -17,7 +14,6 @@ import { MockEntraProvider, certificateThumbprint, createCertificate } from './h
 const clientId = '6731de76-14a6-49ae-97bc-6eba6914391e';
 // Entra's secrets contain characters that are form-urlencoded in client_secret_basic
 const clientSecret = 'Xq28Q~vZ.jK3_mN9pLr-T4wYbC6dEfGh1sUoIaxn';
-const scope = 'openid profile email offline_access';
 // Entra's tokens are too large to keep in a cookie
 const session = {
   store: SessionStore.Memory,
@@ -48,8 +44,7 @@ describe('OIDC authentication with Entra ID', () => {
       clientSecret,
       session,
       extra: {
-        scope,
-        claims: { id: 'oid', username: 'preferred_username' }
+        offlineAccess: true
       }
     });
   });
@@ -81,10 +76,10 @@ describe('OIDC authentication with Entra ID', () => {
     expect(params.grant_type).toBe('authorization_code');
   });
 
-  it.skip('requests the configured scopes (#494)', async () => {
+  it('requests the profile and email scopes, and offline access', async () => {
     const res = await startSignIn(app, jar);
 
-    expect(new URL(res.headers.location as string).searchParams.get('scope')).toBe(scope);
+    expect(new URL(res.headers.location as string).searchParams.get('scope')).toBe('openid profile email offline_access');
   });
 
   it('sends a nonce', async () => {
@@ -93,7 +88,7 @@ describe('OIDC authentication with Entra ID', () => {
     expect(new URL(res.headers.location as string).searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{43,}$/);
   });
 
-  it.skip('signs the user in with the ID token\'s claims (#494)', async () => {
+  it('signs the user in with the ID token\'s claims', async () => {
     const { callback } = await signIn(app, op, jar, alice);
 
     expect(callback.statusCode).toBe(302);
@@ -108,7 +103,7 @@ describe('OIDC authentication with Entra ID', () => {
     });
   });
 
-  it.skip('renews an expired access token with the opaque refresh token (#494)', async () => {
+  it('renews an expired access token with the opaque refresh token', async () => {
     await signIn(app, op, jar, alice);
 
     const before = op.tokenRequests.length;
@@ -154,8 +149,7 @@ describe('OIDC authentication with Entra ID', () => {
         clientId,
         session,
         extra: {
-          scope,
-          claims: { id: 'oid', username: 'preferred_username' },
+          offlineAccess: true,
           clientPrivateKey: credential.privateKey,
           clientCertificate: certificate,
           clientAssertionAudience: 'token-endpoint'
@@ -180,9 +174,8 @@ describe('OIDC authentication with Entra ID', () => {
       expect(params.client_assertion_type).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
       expect(assertion.header['x5t#S256']).toBe(certificateThumbprint(certificate));
       expect(assertion.payload.aud).toBe(certOp.tokenEndpoint);
-      // The username waits on #494, so check that the token request succeeded
       expect(callback.statusCode).toBe(302);
-      expect(certOp.userinfoRequests).toHaveLength(1);
+      expect(await whoami(certApp, certJar)).toMatchObject({ username: 'alice@contoso.example' });
     });
   });
 });

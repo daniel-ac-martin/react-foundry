@@ -42,6 +42,17 @@ export type Options = {
   // Entra ID documents only the token endpoint
   clientAssertionAudience?: PrivateKeyJwtOptions['audience']
   redirectUri: string
+  // Defaults to `openid`, plus `profile` and `email` where the provider supports them
+  scope?: string
+  // Adds `offline_access` to the default scopes, for a refresh token from providers such as Entra ID
+  offlineAccess?: boolean
+  claims?: ClaimNames
+};
+
+// The claims that hold the user's ID and username
+export type ClaimNames = {
+  id?: string
+  username?: string
 };
 
 // Token expiry times are in seconds since the epoch, like a JWT's `exp`
@@ -118,6 +129,22 @@ const callbackError = <T>(err: T): T | FastifyError => {
   }
 };
 
+// Keycloak puts realm roles in `realm_access`, and client roles in `resource_access`
+const extractRoles = ({
+  roles = [],
+  realm_access,
+  resource_access = {}
+}: Record<string, any>): string[] => [
+  ...roles,
+  ...(realm_access?.roles || []),
+  ...Object.entries(resource_access).reduce(resourceToRoles, [])
+];
+
+const unique = <T>(v: T[]): T[] => [ ...new Set(v) ];
+
+// The standard scopes for the user's profile claims
+const desiredScopes = [ 'profile', 'email' ];
+
 const base64UrlDecode = (v: string): string => (
   Buffer.from(v, 'base64url').toString('utf8')
 );
@@ -125,7 +152,9 @@ const base64UrlDecode = (v: string): string => (
 const now = () => Math.floor(Date.now() / 1000);
 
 // Reads tokens as at a single moment, so that a request sees one consistent time
-const tokenReader = (now: number, log: FastifyBaseLogger) => {
+const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames = {}) => {
+  const { id: idClaim, username: usernameClaim } = claimNames;
+
   // Access and refresh tokens may be opaque. Only ID tokens are always JWTs.
   const jwtClaims = (token?: string): Record<string, any> => {
     try {
@@ -170,7 +199,14 @@ const tokenReader = (now: number, log: FastifyBaseLogger) => {
     };
   };
 
-  const authInfo = ({ accessToken, accessTokenExp, refreshToken, refreshTokenExp, idToken }: Tokens, userinfo: object = {}): AuthInfo => {
+  const authInfo = (tokens: Tokens, userinfo: Record<string, any> = {}): AuthInfo => {
+    const {
+      accessToken,
+      accessTokenExp,
+      refreshToken,
+      refreshTokenExp,
+      idToken
+    } = tokens;
     const accessClaims = jwtClaims(accessToken);
     const idClaims = jwtClaims(idToken);
     const data: Record<string, any> = {
@@ -207,9 +243,26 @@ const tokenReader = (now: number, log: FastifyBaseLogger) => {
     const refreshTokenValid = !!refreshToken && (refreshTokenExp === undefined || now < refreshTokenExp);
     const idTokenValid = isValid(idClaims);
 
+    // Roles and groups can be spread across the tokens and userinfo, so combine them
+    const roles = unique([
+      ...extractRoles(accessClaims),
+      ...extractRoles(idClaims),
+      ...extractRoles(userinfo)
+    ]).filter(id);
+    const groups = unique([
+      ...(accessClaims.groups || []),
+      ...(idClaims.groups || []),
+      ...(userinfo.groups || [])
+    ]);
+
     return {
       provider: 'oidc',
-      id: data.sub,
+      // Entra ID's `oid` is the same in every app, whereas its `sub` differs between apps
+      id: (
+        idClaim
+          ? data[idClaim]
+          : data.oid || data.sub
+      ),
       displayName: data.displayName || data.name,
       name: {
         familyName: data.familyName || data.family_name,
@@ -226,13 +279,14 @@ const tokenReader = (now: number, log: FastifyBaseLogger) => {
           ? [{ value: data.photo }]
           : undefined
       ),
-      username: data.username || data.preferred_username,
-      groups: data.groups,
-      roles: [
-        ...(data.roles || []),
-        ...(data.realm_access?.roles || []),
-        ...(Object.entries(data.resource_access || {}).reduce(resourceToRoles, []))
-      ].filter(id),
+      // A configured claim is used alone; otherwise fall back to whatever identifies the user
+      username: (
+        usernameClaim
+          ? data[usernameClaim]
+          : data.username || data.preferred_username || data.email || data.sub
+      ),
+      groups,
+      roles,
       accessToken: data.accessToken,
       accessTokenExp,
       accessTokenValid,
@@ -257,7 +311,10 @@ export const oidc: AuthBagger<Options> = async ({
   clientKeyId,
   clientAssertionAudience,
   issuer,
-  redirectUri: _redirectUri
+  redirectUri: _redirectUri,
+  scope: _scope,
+  offlineAccess,
+  claims
 }, fullSessions, log) => {
   const redirectUri = _redirectUri + '/auth/callback'
   const server = new URL(issuer);
@@ -297,6 +354,21 @@ export const oidc: AuthBagger<Options> = async ({
 
   config.timeout = discoveryOptions.timeout;
   execute.forEach(extension => extension(config));
+
+  // Ask for the standard profile claims where the provider supports them, or doesn't say
+  const scopesSupported = metadata.scopes_supported;
+  const extraScopes = desiredScopes.filter(v => (
+    !scopesSupported || scopesSupported.includes(v)
+  ));
+  const scope = _scope || [
+    'openid',
+    ...extraScopes,
+    ...(
+      offlineAccess
+        ? [ 'offline_access' ]
+        : []
+    )
+  ].join(' ');
 
   const serialize: Serialize<AuthInfo> = (user, req) => {
     if (fullSessions) {
@@ -356,7 +428,7 @@ export const oidc: AuthBagger<Options> = async ({
     },
     req
   ) => {
-    const { tokens, authInfo } = tokenReader(now(), req.log);
+    const { tokens, authInfo } = tokenReader(now(), req.log, claims);
     const currentTokens = {
       accessToken,
       accessTokenExp,
@@ -401,8 +473,7 @@ export const oidc: AuthBagger<Options> = async ({
     const nonce = randomNonce();
     const redirectTo = buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
-      // scope: 'openid email profile',
-      scope: 'openid',
+      scope,
       state,
       nonce,
       code_challenge: codeChallenge,
@@ -421,7 +492,7 @@ export const oidc: AuthBagger<Options> = async ({
 
   // Loosely inspired by openid-client's Passport strategy: https://github.com/panva/openid-client/blob/81c48ef33e10b42caa3a3d33349172a9904fb999/lib/passport_strategy.js#L78
   const callback: SubRouteHandlerMethod = async (req, reply) => {
-    const { tokens, authInfo } = tokenReader(now(), req.log);
+    const { tokens, authInfo } = tokenReader(now(), req.log, claims);
     const sessionObj = (req.session.oidc || {}) as SessionObj;
     delete req.session.oidc;
 

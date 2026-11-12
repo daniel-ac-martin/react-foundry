@@ -34,8 +34,6 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     app = await createApp(op.issuer, {
       clientId,
       extra: {
-        scope: 'openid email',
-        claims: { username: 'email' },
         clientPrivateKey: clientKeys.privateKey.export({ format: 'pem', type: 'pkcs8' })
       }
     });
@@ -76,7 +74,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(decodeJwt(params.client_assertion).payload).toMatchObject({ iss: clientId, sub: clientId });
   });
 
-  it.skip('signs the user in with their email address as their username (#494, #496)', async () => {
+  it('signs the user in with their email address as their username', async () => {
     const { callback } = await signIn(app, op, jar, alice);
 
     expect(callback.statusCode).toBe(302);
@@ -89,7 +87,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     });
   });
 
-  it.skip('signs the user back in through One Login once their access token expires (#494, #495, #496)', async () => {
+  it.skip('signs the user back in through One Login once their access token expires (#495)', async () => {
     await signIn(app, op, jar, alice);
 
     await later(op.accessTokenTTL, async () => {
@@ -128,7 +126,7 @@ describe('OIDC authentication with GOV.UK One Login', () => {
     expect(location.searchParams.get('post_logout_redirect_uri')).toBe(redirectUri);
   });
 
-  it.skip('sends id_token_hint with post_logout_redirect_uri (#494, #496)', async () => {
+  it('sends id_token_hint with post_logout_redirect_uri', async () => {
     await signIn(app, op, jar, alice);
 
     const res = await signOut(app, jar);

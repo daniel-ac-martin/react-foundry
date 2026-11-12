@@ -8,7 +8,7 @@ import type { AppOptions, Jar } from './helpers/app.js';
 import type { MockUser } from './helpers/mock-oidc-provider.js';
 
 import { generateKeyPairSync } from 'node:crypto';
-import { createApp as _createApp, later, redirectUri, signIn as _signIn, updateJar, whoami } from './helpers/app.js';
+import { createApp as _createApp, later, redirectUri, signIn as _signIn, startSignIn, updateJar, whoami } from './helpers/app.js';
 import { SessionStore } from '../src/index.js';
 import { basicCredentials, decodeJwt } from './helpers/common.js';
 import { MockOIDCProvider } from './helpers/mock-oidc-provider.js';
@@ -63,7 +63,7 @@ describe('OIDC authentication', () => {
         expect(location.origin + location.pathname).toBe(`${op.issuer}/protocol/openid-connect/auth`);
         expect(location.searchParams.get('client_id')).toBe(clientId);
         expect(location.searchParams.get('response_type')).toBe('code');
-        expect(location.searchParams.get('scope')).toBe('openid');
+        expect(location.searchParams.get('scope')).toBe('openid profile email');
         expect(location.searchParams.get('redirect_uri')).toBe(`${redirectUri}/auth/callback`);
         expect(location.searchParams.get('code_challenge_method')).toBe('S256');
         expect(location.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -567,6 +567,107 @@ describe('OIDC authentication', () => {
 
       expect((await assertion()).header.alg).toBe('PS256');
       expect(logs).toContain('OIDC client has both a private key and a secret; using the private key');
+    });
+  });
+
+  describe('choosing the scopes', () => {
+    const requestedScope = async (scopesSupported: string[] | undefined, extra?: AppOptions['extra']) => {
+      const op = new MockOIDCProvider({ clientId, clientSecret });
+      op.scopesSupported = scopesSupported;
+      await op.start();
+
+      const app = await createApp(op.issuer, { clientSecret, extra });
+      const res = await startSignIn(app, {});
+
+      await app.close();
+      await op.stop();
+
+      return new URL(res.headers.location as string).searchParams.get('scope');
+    };
+
+    it('leaves out the scopes that the provider does not support', async () => {
+      expect(await requestedScope([ 'openid', 'email', 'phone' ])).toBe('openid email');
+    });
+
+    it('requests the profile and email scopes when the provider does not list its scopes', async () => {
+      expect(await requestedScope(undefined)).toBe('openid profile email');
+    });
+
+    it('adds offline access when asked', async () => {
+      expect(await requestedScope(undefined, { offlineAccess: true })).toBe('openid profile email offline_access');
+    });
+
+    it('requests the configured scopes', async () => {
+      expect(await requestedScope(undefined, { scope: 'openid', offlineAccess: true })).toBe('openid');
+    });
+  });
+
+  describe('choosing the claims', () => {
+    const signInAs = async (user: MockUser, extra?: AppOptions['extra']) => {
+      const op = new MockOIDCProvider({ clientId, clientSecret });
+      await op.start();
+
+      const app = await createApp(op.issuer, { clientSecret, extra });
+      const jar: Jar = {};
+      await _signIn(app, op, jar, user);
+      const result = await whoami(app, jar);
+
+      await app.close();
+      await op.stop();
+
+      return result;
+    };
+
+    it('falls back to the email address when there is no preferred username', async () => {
+      expect(await signInAs({ ...alice, preferred_username: undefined })).toMatchObject({
+        id: alice.sub,
+        username: 'alice@example.com'
+      });
+    });
+
+    it('falls back to the subject when there is no preferred username or email address', async () => {
+      expect(await signInAs({ ...alice, preferred_username: undefined, email: undefined })).toMatchObject({
+        id: alice.sub,
+        username: alice.sub
+      });
+    });
+
+    it('prefers the object ID to the subject', async () => {
+      const user = { ...alice, idTokenClaims: { oid: '00000000-0000-4000-8000-00000000a11c' } };
+
+      expect(await signInAs(user)).toMatchObject({ id: '00000000-0000-4000-8000-00000000a11c' });
+    });
+
+    it('uses only the configured ID claim', async () => {
+      const user = { ...alice, idTokenClaims: { oid: '00000000-0000-4000-8000-00000000a11c' } };
+
+      expect(await signInAs(user, { claims: { id: 'sub' } })).toMatchObject({ id: alice.sub });
+    });
+
+    it('takes the ID and username from the configured claims', async () => {
+      const user = { ...alice, idTokenClaims: { employee_id: 'E1234' } };
+
+      expect(await signInAs(user, { claims: { id: 'employee_id', username: 'email' } })).toMatchObject({
+        id: 'E1234',
+        username: 'alice@example.com'
+      });
+    });
+
+    it('does not sign the user in without the configured username claim', async () => {
+      expect(await signInAs(alice, { claims: { username: 'upn' } })).toBeNull();
+    });
+
+    it('combines the roles and groups from the access token and the ID token', async () => {
+      const user = {
+        ...alice,
+        groups: [ '/staff' ],
+        idTokenClaims: { roles: [ 'admin', 'viewer' ], groups: [ '/staff', '/editors' ] }
+      };
+
+      expect(await signInAs(user)).toMatchObject({
+        roles: [ 'admin', `${clientId}:editor`, 'viewer' ],
+        groups: [ '/staff', '/editors' ]
+      });
     });
   });
 
