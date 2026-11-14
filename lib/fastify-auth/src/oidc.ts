@@ -499,8 +499,19 @@ export const oidc: AuthBagger<Options> = async ({
           req.log.error('Access token was invalid');
           return undefined;
         }
-      } catch (_err) {
-        req.log.error('Failed to obtain new access token');
+      } catch (err) {
+        // Not the whole error, as a ClientError's cause can hold the new ID token's claims
+        const details = (
+          err instanceof ResponseBodyError
+            ? { error: err.error, description: err.error_description }
+            : (
+              err instanceof ClientError
+                ? { code: err.code }
+                : {}
+            )
+        );
+
+        req.log.error(details, `Failed to obtain new access token: ${err}`);
         return undefined;
       }
     } else {
