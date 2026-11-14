@@ -19,16 +19,25 @@ export type AppOptions = {
   clientSecret?: string
   privacy?: boolean
   logs?: string[]
+  // Whole log entries, for tests that check more than the message
+  logEntries?: Record<string, any>[]
   session?: FastifyAuthOptions['session']
   // Options that the plugin's types don't include yet
   extra?: Record<string, unknown>
 };
 
-export const createApp = async (issuer: string, { clientId, clientSecret, privacy = false, logs, session, extra = {} }: AppOptions) => {
+export const createApp = async (issuer: string, { clientId, clientSecret, privacy = false, logs, logEntries, session, extra = {} }: AppOptions) => {
   const app = Fastify({
-    logger: logs && {
+    logger: (logs || logEntries) && {
       level: 'warn',
-      stream: { write: (line: string) => logs.push(JSON.parse(line).msg) }
+      stream: {
+        write: (line: string) => {
+          const entry = JSON.parse(line);
+
+          logs?.push(entry.msg);
+          logEntries?.push(entry);
+        }
+      }
     }
   });
 

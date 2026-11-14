@@ -36,11 +36,12 @@ describe('OIDC authentication', () => {
     let op: MockOIDCProvider;
     let app: FastifyInstance;
     let jar: Jar;
+    const logEntries: Record<string, any>[] = [];
 
     beforeAll(async () => {
       op = new MockOIDCProvider({ clientId, clientSecret });
       await op.start();
-      app = await createApp(op.issuer, { clientSecret });
+      app = await createApp(op.issuer, { clientSecret, logEntries });
     });
 
     afterAll(async () => {
@@ -270,6 +271,19 @@ describe('OIDC authentication', () => {
         op.revokeRefreshTokens();
 
         expect(await later(op.accessTokenTTL, () => whoami(app, jar))).toBeNull();
+      });
+
+      it('logs why it could not renew the token', async () => {
+        await signIn(app, op, jar);
+        op.revokeRefreshTokens();
+        logEntries.length = 0;
+
+        await later(op.accessTokenTTL, () => whoami(app, jar));
+
+        expect(logEntries).toContainEqual(expect.objectContaining({
+          msg: expect.stringMatching(/^Failed to obtain new access token: /),
+          error: 'invalid_grant'
+        }));
       });
 
       it('keeps the refresh token when the provider does not issue a new one', async () => {
