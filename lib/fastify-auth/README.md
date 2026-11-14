@@ -178,21 +178,37 @@ So when the access token's granted scope doesn't include `openid`, meaning
 it's not for userinfo, the OIDC method signs in in two steps:
 
 1. It keeps the access token from the code exchange, for your API.
-2. It uses the refresh token to get a token with just the OpenID Connect
-   scopes, calls userinfo with it, and discards it.
+2. It uses the refresh token to get a token for userinfo, calls userinfo
+   with it, and discards it.
 
 It renews the access token with its own scope, so that it stays a token for
-your API. This needs a refresh token, so request `offline_access` too.
-Otherwise the sign-in fails with `FST_OIDC_NO_USERINFO_TOKEN`.
+your API.
 
-For Microsoft Entra ID, expose a scope on the API's app registration, and
-set its `requestedAccessTokenVersion` to `2`:
+In step 2, it asks for the OpenID Connect scopes from the scopes it signed in
+with. If it can't get a token for userinfo, because there's no refresh token
+or the provider grants a scope without `openid`, it warns and takes the
+user's claims from the ID token instead.
+
+- **`extraUserinfoScopes`:** An array of scopes to ask for in step 2 as well.
+- **`userinfoScope`:** Asks for exactly this scope in step 2 instead,
+  ignoring `extraUserinfoScopes`. `false` skips step 2 without a warning.
+
+Microsoft Entra ID needs Graph's `.default` scope to issue a token for
+userinfo. Asked for the OpenID Connect scopes alone, it issues another token
+for your API. `.default` brings every Graph permission the app has consent
+for into that token, which is discarded after calling userinfo. Expose a
+scope on the API's app registration, set its `requestedAccessTokenVersion`
+to `2`, and request `offline_access` for a refresh token:
 
 ```ts
 {
-  extraScopes: [ 'offline_access', 'api://<api-client-id>/access_as_user' ]
+  extraScopes: [ 'offline_access', 'api://<api-client-id>/access_as_user' ],
+  extraUserinfoScopes: [ 'https://graph.microsoft.com/.default' ]
 }
 ```
+
+Entra's ID token has the same claims as its userinfo response, plus `oid`
+and `preferred_username`, so `userinfoScope: false` loses nothing there.
 
 
 ### OIDC sign-in errors
@@ -208,9 +224,6 @@ errors, which your application's error handler can turn into a suitable page.
 - **`FST_BAD_SESSION` (409):** The sign-in session has gone.
 - **`FST_OIDC_PROVIDER_ERROR` (502):** The identity provider rejected one of
   our requests, such as when the client credentials are wrong.
-- **`FST_OIDC_NO_USERINFO_TOKEN` (500):** The access token is for an API
-  rather than userinfo, and there's no refresh token to get one for
-  userinfo. Request `offline_access`.
 
 
 Working on this package

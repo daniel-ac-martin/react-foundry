@@ -41,7 +41,8 @@ type Grant = {
 };
 
 const graph = '00000003-0000-0000-c000-000000000000';
-// Scopes that don't name a resource; Entra issues a Graph token for these alone
+const graphScopePrefix = 'https://graph.microsoft.com/';
+// Scopes that don't name a resource; Entra issues a Graph token for these alone at sign-in
 const oidcScopes = [ 'openid', 'profile', 'email', 'offline_access' ];
 
 export const certificateThumbprint = (pem: string) => sha256(new X509Certificate(pem).raw);
@@ -139,6 +140,9 @@ export class MockEntraProvider {
 
         return this.tokenResponse(grant, params.scope);
       } else if (params.grant_type === 'refresh_token') {
+        // Entra doesn't revoke a refresh token when it's used, but the mock does, so that tests can tell
+        // whether the plugin keeps the latest one
+        // See: https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens#token-lifetime
         const grant = this.refreshTokens.get(params.refresh_token);
         this.refreshTokens.delete(params.refresh_token);
 
@@ -249,9 +253,22 @@ export class MockEntraProvider {
   // See: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow#refresh-the-access-token
   private tokenResponse(grant: Grant, scope?: string) {
     const { nonce, user } = grant;
+    const requested = scope?.split(' ');
+    // Graph's own scopes, such as `.default`, which stand for the permissions an admin has consented to
+    const graphScopes = requested?.filter(v => v.startsWith(graphScopePrefix)) || [];
     // Requests may narrow the consented scopes, but not add to them
-    const scopes = scope?.split(' ').filter(v => grant.scopes.includes(v)) || grant.scopes;
-    const apiScopes = scopes.filter(v => v.startsWith('api://'));
+    const scopes = requested?.filter(v => grant.scopes.includes(v)) || grant.scopes;
+    const requestedApiScopes = scopes.filter(v => v.startsWith('api://'));
+    // A real tenant renewed a token for the original API when asked for the OpenID Connect scopes alone
+    const apiScopes = (
+      graphScopes.length
+        ? []
+        : (
+          requestedApiScopes.length
+            ? requestedApiScopes
+            : grant.scopes.filter(v => v.startsWith('api://'))
+        )
+    );
     const api = apiScopes[0]?.replace(/^api:\/\/([^/]+)\/.*$/, '$1');
     const resourceScopes = apiScopes.filter(v => v.startsWith(`api://${api}/`));
     const now = Math.floor(Date.now() / 1000);
@@ -303,7 +320,10 @@ export class MockEntraProvider {
       oid,
       tid: this.tenantId,
       sub: sha256(`${oid}:${graph}`),
-      scp: scopes.filter(v => oidcScopes.includes(v) && v !== 'offline_access').join(' '),
+      scp: [
+        ...scopes.filter(v => oidcScopes.includes(v) && v !== 'offline_access'),
+        ...graphScopes.filter(v => v !== `${graphScopePrefix}.default`).map(v => v.slice(graphScopePrefix.length))
+      ].join(' '),
       upn: profile.preferred_username,
       unique_name: profile.preferred_username,
       name: profile.name,
@@ -327,7 +347,7 @@ export class MockEntraProvider {
       scope: (
         api
           ? resourceScopes.join(' ')
-          : decodeJwt(accessToken).payload.scp
+          : [ decodeJwt(accessToken).payload.scp, ...graphScopes ].join(' ')
       ),
       expires_in: Math.max(this.accessTokenTTL, 0),
       ext_expires_in: Math.max(this.accessTokenTTL, 0),
