@@ -179,16 +179,28 @@ describe('OIDC authentication with Entra ID', () => {
     });
   });
 
-  describe('with a scope for the app\'s own API (#513)', () => {
+  describe('with a scope for the app\'s own API', () => {
     const apiScope = `api://${clientId}/access_as_user`;
+    const graphDefault = 'https://graph.microsoft.com/.default';
+    const logs: string[] = [];
     let apiOp: MockEntraProvider;
 
-    const createApiApp = (extraScopes: string[]) => createApp(apiOp.issuer, {
+    const createApiApp = (extra: Record<string, unknown>) => createApp(apiOp.issuer, {
       clientId,
       clientSecret,
       session,
-      extra: { extraScopes }
+      logs,
+      extra
     });
+
+    // The user's claims from the ID token alone
+    const fromIdToken = {
+      id: alice.oid,
+      username: 'alice@contoso.example',
+      displayName: 'Alice Example',
+      emails: [ { value: 'alice@contoso.example' } ],
+      roles: [ 'Indicators.Publish' ]
+    };
 
     beforeAll(async () => {
       apiOp = new MockEntraProvider({ clientId, clientSecret });
@@ -202,13 +214,14 @@ describe('OIDC authentication with Entra ID', () => {
     beforeEach(() => {
       apiOp.tokenRequests.length = 0;
       apiOp.userinfoRequests.length = 0;
+      logs.length = 0;
     });
 
     describe('and offline access', () => {
       let apiApp: FastifyInstance;
 
       beforeAll(async () => {
-        apiApp = await createApiApp([ 'offline_access', apiScope ]);
+        apiApp = await createApiApp({ extraScopes: [ 'offline_access', apiScope ] });
       });
 
       afterAll(async () => {
@@ -221,7 +234,7 @@ describe('OIDC authentication with Entra ID', () => {
         expect(new URL(res.headers.location as string).searchParams.get('scope')).toBe(`openid profile email offline_access ${apiScope}`);
       });
 
-      it('keeps the token for the API, and calls userinfo with a token for Graph', async () => {
+      it('keeps the token for the API, and uses the ID token when the refresh doesn\'t give a token for userinfo', async () => {
         const { callback } = await signIn(apiApp, apiOp, jar, alice);
         const [ code, refresh ] = apiOp.tokenRequests;
         const user = await whoami(apiApp, jar);
@@ -229,17 +242,11 @@ describe('OIDC authentication with Entra ID', () => {
         expect(callback.statusCode).toBe(302);
         expect(code.params.grant_type).toBe('authorization_code');
         expect(code.params.scope).toBeUndefined();
-        expect(refresh.params.grant_type).toBe('refresh_token');
-        expect(refresh.params.scope).toBe('openid profile email offline_access');
-        expect(apiOp.userinfoRequests).toHaveLength(1);
+        expect(refresh.params).toMatchObject({ grant_type: 'refresh_token', scope: 'openid profile email offline_access' });
+        expect(apiOp.userinfoRequests).toHaveLength(0);
         expect(decodeJwt(user.accessToken).payload).toMatchObject({ aud: clientId, scp: 'access_as_user' });
-        expect(user).toMatchObject({
-          id: alice.oid,
-          username: 'alice@contoso.example',
-          emails: [ { value: 'alice@contoso.example' } ],
-          roles: [ 'Indicators.Publish' ],
-          accessTokenValid: true
-        });
+        expect(user).toMatchObject({ ...fromIdToken, accessTokenValid: true });
+        expect(logs).toContainEqual(expect.stringContaining(`but got \`${apiScope}\`; using the ID token instead`));
       });
 
       it('renews the token for the API with the API\'s scope', async () => {
@@ -254,23 +261,111 @@ describe('OIDC authentication with Entra ID', () => {
       });
     });
 
-    describe('without offline access', () => {
+    describe('and Graph\'s `.default` added to the userinfo scopes', () => {
       let apiApp: FastifyInstance;
 
       beforeAll(async () => {
-        apiApp = await createApiApp([ apiScope ]);
+        apiApp = await createApiApp({
+          extraScopes: [ 'offline_access', apiScope ],
+          extraUserinfoScopes: [ graphDefault ]
+        });
       });
 
       afterAll(async () => {
         await apiApp.close();
       });
 
-      it('reports that there is no token for userinfo', async () => {
-        const { callback } = await signIn(apiApp, apiOp, jar, alice);
+      it('keeps the token for the API, and calls userinfo with a token for Graph', async () => {
+        await signIn(apiApp, apiOp, jar, alice);
+        const [ , refresh ] = apiOp.tokenRequests;
+        const user = await whoami(apiApp, jar);
 
-        expect(callback.statusCode).toBe(500);
-        expect(callback.json().code).toBe('FST_OIDC_NO_USERINFO_TOKEN');
+        expect(refresh.params).toMatchObject({ grant_type: 'refresh_token', scope: `openid profile email offline_access ${graphDefault}` });
+        expect(apiOp.userinfoRequests).toHaveLength(1);
+        expect(decodeJwt(user.accessToken).payload).toMatchObject({ aud: clientId, scp: 'access_as_user' });
+        expect(user).toMatchObject({ ...fromIdToken, accessTokenValid: true });
+        expect(user.userinfo).toMatchObject({ email: 'alice@contoso.example' });
+        expect(logs).toHaveLength(0);
+      });
+
+      it('renews the token for the API with the latest refresh token', async () => {
+        await signIn(apiApp, apiOp, jar, alice);
+
+        const user = await later(apiOp.accessTokenTTL, () => whoami(apiApp, jar));
+
+        expect(user).toMatchObject({ username: 'alice@contoso.example', accessTokenValid: true });
+      });
+    });
+
+    describe('and a userinfo scope of its own', () => {
+      let apiApp: FastifyInstance;
+
+      beforeAll(async () => {
+        apiApp = await createApiApp({
+          extraScopes: [ 'offline_access', apiScope ],
+          userinfoScope: `openid email ${graphDefault}`,
+          extraUserinfoScopes: [ 'ignored' ]
+        });
+      });
+
+      afterAll(async () => {
+        await apiApp.close();
+      });
+
+      it('refreshes with exactly that scope', async () => {
+        await signIn(apiApp, apiOp, jar, alice);
+        const [ , refresh ] = apiOp.tokenRequests;
+
+        expect(refresh.params.scope).toBe(`openid email ${graphDefault}`);
+        expect(apiOp.userinfoRequests).toHaveLength(1);
+      });
+    });
+
+    describe('and userinfo turned off', () => {
+      let apiApp: FastifyInstance;
+
+      beforeAll(async () => {
+        apiApp = await createApiApp({
+          extraScopes: [ 'offline_access', apiScope ],
+          userinfoScope: false
+        });
+      });
+
+      afterAll(async () => {
+        await apiApp.close();
+      });
+
+      it('uses the ID token without refreshing or calling userinfo', async () => {
+        await signIn(apiApp, apiOp, jar, alice);
+        const user = await whoami(apiApp, jar);
+
+        expect(apiOp.tokenRequests).toHaveLength(1);
         expect(apiOp.userinfoRequests).toHaveLength(0);
+        expect(user).toMatchObject({ ...fromIdToken, accessTokenValid: true });
+        expect(logs).toHaveLength(0);
+      });
+    });
+
+    describe('without offline access', () => {
+      let apiApp: FastifyInstance;
+
+      beforeAll(async () => {
+        apiApp = await createApiApp({ extraScopes: [ apiScope ] });
+      });
+
+      afterAll(async () => {
+        await apiApp.close();
+      });
+
+      it('uses the ID token, and warns that there is no refresh token', async () => {
+        const { callback } = await signIn(apiApp, apiOp, jar, alice);
+        const user = await whoami(apiApp, jar);
+
+        expect(callback.statusCode).toBe(302);
+        expect(apiOp.tokenRequests).toHaveLength(1);
+        expect(apiOp.userinfoRequests).toHaveLength(0);
+        expect(user).toMatchObject(fromIdToken);
+        expect(logs).toContainEqual(expect.stringContaining('No refresh token to get an access token for userinfo'));
       });
     });
   });

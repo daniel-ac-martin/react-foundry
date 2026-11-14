@@ -46,6 +46,10 @@ export type Options = {
   scope?: string
   // Added to the default scopes, e.g. `offline_access` or an API's scope; ignored with `scope`
   extraScopes?: string[]
+  // For getting a token for userinfo when the access token is for an API; `false` uses the ID token instead
+  userinfoScope?: string | false
+  // Added to the default userinfo scopes, e.g. Graph's `.default`; ignored with `userinfoScope`
+  extraUserinfoScopes?: string[]
   claims?: ClaimNames
 };
 
@@ -99,7 +103,6 @@ const BadSession = createError('FST_BAD_SESSION', 'Unable to verify session', 40
 const NotSignedIn = createError('FST_OIDC_NOT_SIGNED_IN', 'The identity provider did not sign the user in: %s', 401);
 const BadCallback = createError('FST_OIDC_BAD_CALLBACK', 'The sign-in response does not match the sign-in request', 400);
 const ProviderError = createError('FST_OIDC_PROVIDER_ERROR', 'The identity provider rejected a request: %s', 502);
-const NoUserinfoToken = createError('FST_OIDC_NO_USERINFO_TOKEN', 'The access token is not for userinfo, and there is no refresh token to get one; request the offline_access scope', 500);
 
 // The claim that failed a comparison, which openid-client nests two causes deep
 const failedClaim = (err: ClientError) => {
@@ -334,6 +337,8 @@ export const oidc: AuthBagger<Options> = async ({
   redirectUri: _redirectUri,
   scope: _scope,
   extraScopes = [],
+  userinfoScope: _userinfoScope,
+  extraUserinfoScopes = [],
   claims
 }, fullSessions, log) => {
   const redirectUri = _redirectUri + '/auth/callback'
@@ -380,30 +385,15 @@ export const oidc: AuthBagger<Options> = async ({
   const availableScopes = desiredScopes.filter(v => (
     !scopesSupported || scopesSupported.includes(v)
   ));
-  const scope = _scope || [
+  const scope = _scope ?? [
     'openid',
     ...availableScopes,
     ...extraScopes
   ].join(' ');
-  const userinfoScope = (
-    scope
-      .split(' ')
-      .filter(v => oidcScopes.includes(v))
-      .join(' ')
-  );
-
-  // A token for an API can't be used for userinfo, so use the refresh token to get one that can
-  const tokensForUserinfo = async (tokenSet: TokenEndpointResponse, current: Tokens) => {
-    const { accessTokenScope, refreshToken } = current;
-
-    if (accessTokenScope === undefined) {
-      return tokenSet;
-    } else if (refreshToken) {
-      return refreshTokenGrant(config, refreshToken, { scope: userinfoScope });
-    } else {
-      throw new NoUserinfoToken();
-    }
-  };
+  const userinfoScope = _userinfoScope ?? [
+    ...scope.split(' ').filter(v => oidcScopes.includes(v)),
+    ...extraUserinfoScopes
+  ].join(' ');
 
   const serialize: Serialize<AuthInfo> = (user, req) => {
     if (fullSessions) {
@@ -573,14 +563,38 @@ export const oidc: AuthBagger<Options> = async ({
         pkceCodeVerifier: codeVerifier
       });
       const codeTokens = tokens(tokenSet);
-      const userinfoTokenSet = await tokensForUserinfo(tokenSet, codeTokens);
-      const userinfo = await fetchUserInfo(config, userinfoTokenSet.access_token, tokenSet.claims()!.sub);
-      // Keep the access token from the code exchange, with the latest refresh token
-      const latestTokens = (
-        userinfoTokenSet === tokenSet
-          ? codeTokens
-          : tokens(userinfoTokenSet, codeTokens)
+      const { accessTokenScope, refreshToken } = codeTokens;
+      // Without a token for userinfo, the user's claims come from the ID token
+      let userinfoTokenSet: TokenEndpointResponse | undefined;
+      let latestTokens = codeTokens;
+
+      if (accessTokenScope === undefined) {
+        userinfoTokenSet = tokenSet;
+      } else if (userinfoScope !== false) {
+        // A token for an API can't be used for userinfo, so use the refresh token to try to get one that can
+        if (refreshToken) {
+          const refreshed = await refreshTokenGrant(config, refreshToken, { scope: userinfoScope });
+          // A response without a scope has the one requested (RFC 6749 §5.1)
+          const grantedScope = refreshed.scope ?? userinfoScope;
+
+          latestTokens = tokens(refreshed, codeTokens);
+
+          if (grantedScope.split(' ').includes('openid')) {
+            userinfoTokenSet = refreshed;
+          } else {
+            req.log.warn(`Asked for \`${userinfoScope}\` to call userinfo, but got \`${grantedScope}\`; using the ID token instead. Add a scope that gets a token for userinfo with \`extraUserinfoScopes\`, or set \`userinfoScope\` to \`false\`.`);
+          }
+        } else {
+          req.log.warn('No refresh token to get an access token for userinfo; using the ID token instead. Request `offline_access`, or set `userinfoScope` to `false`.');
+        }
+      }
+
+      const userinfo = (
+        userinfoTokenSet
+          ? await fetchUserInfo(config, userinfoTokenSet.access_token, tokenSet.claims()!.sub)
+          : undefined
       );
+      // Keep the access token from the code exchange, with the latest refresh token
       const newTokens = {
         ...codeTokens,
         refreshToken: latestTokens.refreshToken,
