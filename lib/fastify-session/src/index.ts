@@ -81,7 +81,7 @@ const fastifySessionPlugin: FastifyPluginCallback<FastifySessionPluginOptions> =
       } else {
         const sessionId = req.sessionMeta.id || randomUUID();
 
-        write(sessionId, sessionData);
+        await write(sessionId, sessionData);
 
         if(!req.sessionMeta.id) {
           req.log.debug('Setting new session cookie');
@@ -117,7 +117,12 @@ const fastifySessionPlugin: FastifyPluginCallback<FastifySessionPluginOptions> =
 
       req.sessionMeta.data = sessionData;
     } else {
-      const id: string = String(req.cookies[sessionCookie.name]);
+      const rawId = req.cookies[sessionCookie.name];
+      const id = (
+        rawId === undefined
+          ? undefined
+          : String(rawId)
+      );
       const sessionData = (
         id === undefined
           ? undefined
