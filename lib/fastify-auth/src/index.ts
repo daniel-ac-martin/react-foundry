@@ -2,6 +2,7 @@ import type { FastifyPluginCallback } from 'fastify';
 import type { RateLimitOptions, RateLimitPluginOptions } from '@fastify/rate-limit';
 import type { FastifySessionOptions } from '@react-foundry/fastify-session';
 import type { Options as _BasicOptions } from './basic.js';
+import type { Options as _BearerOAuth2Options } from './bearer-oauth2.js';
 import type { Options as _DummyOptions } from './dummy.js';
 import type { Options as _HeadersOptions } from './headers.js';
 import type { Options as _OIDCOptions } from './oidc.js';
@@ -11,6 +12,7 @@ import fp from 'fastify-plugin';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySession, { SessionStore } from '@react-foundry/fastify-session';
 import { basic } from './basic.js';
+import { bearerOAuth2 } from './bearer-oauth2.js';
 import { dummy } from './dummy.js';
 import { headers } from './headers.js';
 import { oidc } from './oidc.js';
@@ -20,6 +22,7 @@ export enum AuthMethod {
   Dummy = 'dummy',
   Headers = 'headers',
   Basic = 'basic',
+  BearerOAuth2 = 'bearer-oauth2',
   OIDC = 'oidc'
 };
 
@@ -29,14 +32,16 @@ type NoneOptions = Method<AuthMethod.None> | { method?: undefined };
 type DummyOptions = Method<AuthMethod.Dummy> & _DummyOptions;
 type HeadersOptions = Method<AuthMethod.Headers> & _HeadersOptions;
 type BasicOptions = Method<AuthMethod.Basic> & _BasicOptions;
+type BearerOAuth2Options = Method<AuthMethod.BearerOAuth2> & _BearerOAuth2Options;
 type OIDCOptions = Method<AuthMethod.OIDC> & _OIDCOptions;
 
-type MethodOptions = NoneOptions | DummyOptions | HeadersOptions | BasicOptions | OIDCOptions;
+type MethodOptions = NoneOptions | DummyOptions | HeadersOptions | BasicOptions | BearerOAuth2Options | OIDCOptions;
 
 const isNone = (v: MethodOptions): v is NoneOptions => v.method === AuthMethod.None || v.method === undefined;
 const isDummy = (v: MethodOptions): v is DummyOptions => v.method === AuthMethod.Dummy;
 const isHeaders = (v: MethodOptions): v is HeadersOptions => v.method === AuthMethod.Headers;
 const isBasic = (v: MethodOptions): v is BasicOptions => v.method === AuthMethod.Basic;
+const isBearerOAuth2 = (v: MethodOptions): v is BearerOAuth2Options => v.method === AuthMethod.BearerOAuth2;
 const isOIDC = (v: MethodOptions): v is OIDCOptions => v.method === AuthMethod.OIDC;
 
 //const noAuth: NoneOptions = { method: AuthMethod.None };
@@ -104,16 +109,19 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
     deserialize = serDes,
     serialize = _serialize,
     terminate,
-    wantSession
+    wantSession,
+    perRequest = false
   } = await (
     isDummy(methodOptions) ? dummy(methodOptions, fullSessions, fastify.log)
       : isHeaders(methodOptions) ? headers(methodOptions, fullSessions, fastify.log)
       : isBasic(methodOptions) ? basic(methodOptions, fullSessions, fastify.log)
+      : isBearerOAuth2(methodOptions) ? bearerOAuth2({ ...methodOptions, privacy }, fullSessions, fastify.log)
       : isOIDC(methodOptions) ? oidc(methodOptions, fullSessions, fastify.log)
       : {}
   );
 
-  const useSession = wantSession || !privacy;
+  // Without privacy, users sign in once and stay signed in with a session, unless the method checks every request
+  const useSession = wantSession || (!privacy && !perRequest);
   const whitelist = (
     callback
       ? [ pathPrefix + callbackPath, pathPrefix + signOutPath ]
@@ -163,12 +171,12 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
       });
     }
 
-    if (privacy) {
+    if (privacy || perRequest) {
       fastify.addHook('preHandler', async (req: Request, reply) => {
         if (!req.user && !whitelist.includes(req.url.split('?', 1)[0])) {
           const r = await authenticate(req as RequestFull, reply);
 
-          if (!callback) {
+          if (!callback && req.user) {
             const username = (req.user as any)?.username as Maybe<string>; // TypeScript doesn't seem to understand that authenticate can mutate req
 
             req.log.debug(`User, '${username}', authenticated`);
@@ -209,25 +217,27 @@ const fastifyAuthPlugin: FastifyPluginCallback<FastifyAuthPluginOptions> = async
       });
     }
 
-    // Sign-out endpoint
-    fastify.get(pathPrefix + signOutPath, async (req: Request, reply) => {
-      const user = req.user;
+    // Sign-out endpoint, for methods that sign in once
+    if (!perRequest) {
+      fastify.get(pathPrefix + signOutPath, async (req: Request, reply) => {
+        const user = req.user;
 
-      if (useSession && req.session?.user) {
-        delete req.user;
-        delete req.session.user; // FIXME: Delete entire session?!
-      }
+        if (useSession && req.session?.user) {
+          delete req.user;
+          delete req.session.user; // FIXME: Delete entire session?!
+        }
 
-      const r = await terminate?.(req as RequestFull, reply, user);
+        const r = await terminate?.(req as RequestFull, reply, user);
 
-      req.log.debug('User logged out');
+        req.log.debug('User logged out');
 
-      return (
-        reply.sent
-          ? r
-          : redirect(req, reply)
-      );
-    });
+        return (
+          reply.sent
+            ? r
+            : redirect(req, reply)
+        );
+      });
+    }
   }
 };
 
