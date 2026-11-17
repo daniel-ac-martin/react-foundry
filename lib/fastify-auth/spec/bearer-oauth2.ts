@@ -75,7 +75,8 @@ describe('Bearer token authentication with OAuth 2.0', () => {
     });
 
     it('accepts a valid token, and reads the user from its claims', async () => {
-      const token = op.jwt(claims());
+      const tokenClaims = claims();
+      const token = op.jwt(tokenClaims);
       const res = await get(app, token);
 
       expect(res.statusCode).toBe(200);
@@ -87,7 +88,7 @@ describe('Bearer token authentication with OAuth 2.0', () => {
         scopes: [ 'profile', 'email', 'read' ],
         accessToken: token
       });
-      expect(new Date(res.json().expiry).getTime()).toBe(claims().exp * 1000);
+      expect(new Date(res.json().expiry).getTime()).toBe(tokenClaims.exp * 1000);
     });
 
     it('accepts RFC 9068\'s token type', async () => {
