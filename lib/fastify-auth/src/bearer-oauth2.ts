@@ -40,7 +40,7 @@ const forHeader = (v: string) => v.replace(/["\\]/g, '');
 const metadataKinds: DiscoveryRequestOptions['algorithm'][] = [ 'oidc', 'oauth2' ];
 
 // Finds the provider's keys from its metadata
-const discoverJwksUri = async (issuer: URL): Promise<URL> => {
+const discoverJwksUri = async (issuer: URL, clientId: string): Promise<URL> => {
   const execute = (
     issuer.protocol === 'http:'
       ? [ allowInsecureRequests ]
@@ -49,8 +49,7 @@ const discoverJwksUri = async (issuer: URL): Promise<URL> => {
 
   for (const algorithm of metadataKinds) {
     try {
-      // openid-client needs a client ID, but only the metadata is used, so any ID will do
-      const config = await discovery(issuer, 'bearer-oauth2', undefined, undefined, { algorithm, execute });
+      const config = await discovery(issuer, clientId, undefined, undefined, { algorithm, execute });
       const { jwks_uri } = config.serverMetadata();
 
       if (jwks_uri) {
@@ -80,7 +79,13 @@ export const bearerOAuth2: AuthBagger<Options & { privacy: boolean }> = async ({
     log.warn('OAuth 2.0 issuer is not using HTTPS; its keys could be tampered with!');
   }
 
-  const jwksUri = await discoverJwksUri(server);
+  // openid-client's discovery needs a client ID, and the API's own identifier is usually its client ID
+  const clientId = (
+    Array.isArray(audience)
+      ? audience[0]
+      : audience
+  );
+  const jwksUri = await discoverJwksUri(server, clientId);
   const jwks = createRemoteJWKSet(jwksUri);
 
   const challenge = (reply: Reply, error?: string) => {
