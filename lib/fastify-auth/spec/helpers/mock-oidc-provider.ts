@@ -193,8 +193,8 @@ export class MockOIDCProvider {
     this.refreshTokens.clear();
   }
 
-  jwt(claims: object) {
-    return signJwt(claims, this.keys.privateKey, { kid: this.kid });
+  jwt(claims: object, header: object = {}) {
+    return signJwt(claims, this.keys.privateKey, { kid: this.kid, ...header });
   }
 
   get tokenEndpoint() {
