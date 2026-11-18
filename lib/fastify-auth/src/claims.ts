@@ -56,8 +56,7 @@ export const profileFromClaims = (sources: Claims[], claimNames: ClaimNames = {}
     id: (
       idClaim
         ? data[idClaim]
-        // Entra ID's `oid` is the same in every app, whereas its `sub` differs between apps
-        : data.oid || data.sub
+        : data.oid || data.sub // Entra ID's `oid` is the same in every app, whereas its `sub` differs between apps
     ),
     displayName: data.displayName || data.name,
     name: {

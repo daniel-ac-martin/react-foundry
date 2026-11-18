@@ -36,31 +36,33 @@ const clockTolerance = 30;
 // A quoted string in a header can't hold an unescaped quote or backslash
 const forHeader = (v: string) => v.replace(/["\\]/g, '');
 
-// The kinds of metadata to look for: OpenID Connect discovery, then OAuth 2.0 (RFC 8414)
-const metadataKinds: DiscoveryRequestOptions['algorithm'][] = [ 'oidc', 'oauth2' ];
-
-// Finds the provider's keys from its metadata
+// Finds the provider's keys from its OpenID Connect discovery document, or else its OAuth 2.0 metadata (RFC 8414)
 const discoverJwksUri = async (issuer: URL, clientId: string): Promise<URL> => {
   const execute = (
     issuer.protocol === 'http:'
       ? [ allowInsecureRequests ]
       : []
   );
+  const jwksUri = async (algorithm: DiscoveryRequestOptions['algorithm']) => {
+    const config = await discovery(issuer, clientId, undefined, undefined, { algorithm, execute });
+    const { jwks_uri } = config.serverMetadata();
 
-  for (const algorithm of metadataKinds) {
+    if (!jwks_uri) {
+      throw new Error('The metadata has no `jwks_uri`');
+    }
+
+    return new URL(jwks_uri);
+  };
+
+  try {
+    return await jwksUri('oidc');
+  } catch {
     try {
-      const config = await discovery(issuer, clientId, undefined, undefined, { algorithm, execute });
-      const { jwks_uri } = config.serverMetadata();
-
-      if (jwks_uri) {
-        return new URL(jwks_uri);
-      }
-    } catch {
-      // Try the next kind of metadata
+      return await jwksUri('oauth2');
+    } catch (err) {
+      throw new Error(`Could not find the keys for the issuer, ${issuer}`, { cause: err });
     }
   }
-
-  throw new Error(`Could not find the keys for the issuer, ${issuer}`);
 };
 
 export const bearerOAuth2: AuthBagger<Options & { privacy: boolean }> = async ({
@@ -120,9 +122,10 @@ export const bearerOAuth2: AuthBagger<Options & { privacy: boolean }> = async ({
             throw new Error(`unexpected token type, ${protectedHeader.typ}`);
           }
 
+          const claimsInfo = profileFromClaims([ payload ], claims);
           const user: BearerUser = {
             provider: 'bearer-oauth2',
-            ...profileFromClaims([ payload ], claims),
+            ...claimsInfo,
             accessToken: token,
             expiry: (
               payload.exp === undefined
