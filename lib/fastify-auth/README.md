@@ -84,13 +84,18 @@ Options object:
 
 An object representing the user data. Includes the `username` and `roles`. When
 using OIDC, it should also contain the `accessToken` for making requests to
-other services on behalf of the user.
+other services on behalf of the user. With OIDC and `'bearer-oauth2'`, it has
+the `scopes` granted to the client, read from the access token's `scope` or
+`scp` claim.
 
 
 ### Bearer tokens for an API
 
-The `'bearer-oauth2'` method authenticates every request to an API by its
-`Authorization: Bearer <token>` header, with no session, sign-in or redirect.
+The `'bearer-oauth2'` method checks each request's `Authorization` header for
+an OAuth 2.0 bearer token (`Authorization: Bearer <token>`), with no session,
+sign-in or redirect. It's intended for APIs, such as one that a web app calls
+with the access token that the OIDC method gets for it.
+
 It checks JSON Web Token (JWT) access tokens against the keys that the
 provider publishes, which it finds from the provider's OpenID Connect
 discovery document or OAuth 2.0 metadata:
@@ -112,7 +117,10 @@ httpd.register(fastifyAuth, {
 - **`audience`** is required. Microsoft Entra ID uses the API's client ID in
   version 2 tokens. Keycloak needs an audience mapper to add the API to its
   access tokens.
-- **`claims`** works as for the OIDC method (see below).
+- **`claims`** says which claims hold the user's ID and username, as for the
+  OIDC method. By default, the ID is `oid`, falling back to `sub`, and the
+  username is the first of `username`, `preferred_username`, `email` and
+  `sub`. A configured claim is used on its own, with no fallback.
 
 `req.user` is built from the token's claims as the OIDC method builds it,
 including roles from Keycloak and Entra ID. It also has the token itself, as

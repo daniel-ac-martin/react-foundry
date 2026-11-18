@@ -10,6 +10,8 @@ export type ClaimNames = {
   username?: string
 };
 
+type Claims = Record<string, any>;
+
 type Reducer<A, B> = (acc: B, cur: A) => B;
 const resourceToRoles: Reducer<any[], string[]> = (acc, [x, y]) => ([
   ...acc,
@@ -21,7 +23,7 @@ const extractRoles = ({
   roles = [],
   realm_access,
   resource_access = {}
-}: Record<string, any>): string[] => [
+}: Claims): string[] => [
   ...roles,
   ...(realm_access?.roles || []),
   ...Object.entries(resource_access).reduce(resourceToRoles, [])
@@ -29,21 +31,32 @@ const extractRoles = ({
 
 const unique = <T>(v: T[]): T[] => [ ...new Set(v) ];
 
-type Profile = Omit<UserProfile, 'provider' | 'expiry'>;
+type Profile = Omit<UserProfile, 'provider' | 'expiry' | 'scopes'> & { scopes: string[] };
+
+// The scopes granted to the client, in RFC 9068's `scope` or Entra ID's and Okta's `scp`
+const scopesFromClaims = ({ scope, scp }: Claims): string[] => {
+  const scopes = scope ?? scp ?? [];
+
+  return (
+    typeof scopes === 'string'
+      ? scopes.split(' ').filter(id)
+      : scopes
+  );
+};
 
 // The user's profile from one or more sets of claims, with later ones taking precedence
-export const profileFromClaims = (sources: Record<string, any>[], claimNames: ClaimNames = {}): Profile => {
+export const profileFromClaims = (sources: Claims[], claimNames: ClaimNames = {}): Profile => {
   const { id: idClaim, username: usernameClaim } = claimNames;
-  const data: Record<string, any> = Object.assign({}, ...sources);
+  const data: Claims = Object.assign({}, ...sources);
   // Roles and groups can be spread across the sources, so combine them
   const roles = unique(sources.flatMap(extractRoles)).filter(id);
   const groups = unique(sources.flatMap(v => v.groups || []));
 
   return {
-    // Entra ID's `oid` is the same in every app, whereas its `sub` differs between apps
     id: (
       idClaim
         ? data[idClaim]
+        // Entra ID's `oid` is the same in every app, whereas its `sub` differs between apps
         : data.oid || data.sub
     ),
     displayName: data.displayName || data.name,
@@ -62,24 +75,13 @@ export const profileFromClaims = (sources: Record<string, any>[], claimNames: Cl
         ? [{ value: data.photo }]
         : undefined
     ),
-    // A configured claim is used alone; otherwise fall back to whatever identifies the user
     username: (
       usernameClaim
         ? data[usernameClaim]
         : data.username || data.preferred_username || data.email || data.sub
     ),
     groups,
-    roles
+    roles,
+    scopes: scopesFromClaims(data)
   };
-};
-
-// The scopes granted to the client, in RFC 9068's `scope` or Entra ID's and Okta's `scp`
-export const scopesFromClaims = ({ scope, scp }: Record<string, any>): string[] => {
-  const scopes = scope ?? scp ?? [];
-
-  return (
-    typeof scopes === 'string'
-      ? scopes.split(' ').filter(id)
-      : scopes
-  );
 };

@@ -1,10 +1,11 @@
+import type { DiscoveryRequestOptions } from 'openid-client';
 import type { ClaimNames } from './claims.js';
 import type { AuthBagger, Reply, UserProfile } from './common.js';
 
 import { createError } from '@fastify/error';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { allowInsecureRequests, discoveryRequest, processDiscoveryResponse } from 'oauth4webapi';
-import { profileFromClaims, scopesFromClaims } from './claims.js';
+import { allowInsecureRequests, discovery } from 'openid-client';
+import { profileFromClaims } from './claims.js';
 
 // OAuth 2.0 bearer tokens, issued as JWTs by an OpenID Connect or OAuth 2.0 provider
 // See: https://www.rfc-editor.org/rfc/rfc6750 and https://www.rfc-editor.org/rfc/rfc9068
@@ -12,6 +13,7 @@ import { profileFromClaims, scopesFromClaims } from './claims.js';
 export type Options = {
   issuer: string
   // The API's identifier in the provider, which its access tokens carry in `aud`; Entra ID uses the API's client ID
+  // A list accepts a token addressed to any of them, such as an API known by both its client ID and an `api://` URI
   audience: string | string[]
   claims?: ClaimNames
 };
@@ -34,20 +36,28 @@ const clockTolerance = 30;
 // A quoted string in a header can't hold an unescaped quote or backslash
 const forHeader = (v: string) => v.replace(/["\\]/g, '');
 
-// Finds the provider's keys from its OpenID Connect discovery document, or its OAuth 2.0 metadata
-const discoverJwksUri = async (issuer: URL) => {
-  const options = { [allowInsecureRequests]: issuer.protocol === 'http:' };
+// The kinds of metadata to look for: OpenID Connect discovery, then OAuth 2.0 (RFC 8414)
+const metadataKinds: DiscoveryRequestOptions['algorithm'][] = [ 'oidc', 'oauth2' ];
 
-  for (const algorithm of [ 'oidc', 'oauth2' ] as const) {
+// Finds the provider's keys from its metadata
+const discoverJwksUri = async (issuer: URL): Promise<URL> => {
+  const execute = (
+    issuer.protocol === 'http:'
+      ? [ allowInsecureRequests ]
+      : []
+  );
+
+  for (const algorithm of metadataKinds) {
     try {
-      const response = await discoveryRequest(issuer, { ...options, algorithm });
-      const metadata = await processDiscoveryResponse(issuer, response);
+      // openid-client needs a client ID, but only the metadata is used, so any ID will do
+      const config = await discovery(issuer, 'bearer-oauth2', undefined, undefined, { algorithm, execute });
+      const { jwks_uri } = config.serverMetadata();
 
-      if (metadata.jwks_uri) {
-        return new URL(metadata.jwks_uri);
+      if (jwks_uri) {
+        return new URL(jwks_uri);
       }
     } catch {
-      // Try the other kind of metadata
+      // Try the next kind of metadata
     }
   }
 
@@ -70,7 +80,8 @@ export const bearerOAuth2: AuthBagger<Options & { privacy: boolean }> = async ({
     log.warn('OAuth 2.0 issuer is not using HTTPS; its keys could be tampered with!');
   }
 
-  const jwks = createRemoteJWKSet(await discoverJwksUri(server));
+  const jwksUri = await discoverJwksUri(server);
+  const jwks = createRemoteJWKSet(jwksUri);
 
   const challenge = (reply: Reply, error?: string) => {
     reply.header('WWW-Authenticate', (
@@ -107,7 +118,6 @@ export const bearerOAuth2: AuthBagger<Options & { privacy: boolean }> = async ({
           const user: BearerUser = {
             provider: 'bearer-oauth2',
             ...profileFromClaims([ payload ], claims),
-            scopes: scopesFromClaims(payload),
             accessToken: token,
             expiry: (
               payload.exp === undefined

@@ -230,9 +230,11 @@ const tokenReader = (now: number, log: FastifyBaseLogger, claimNames: ClaimNames
     const refreshTokenValid = !!refreshToken && (refreshTokenExp === undefined || now < refreshTokenExp);
     const idTokenValid = isValid(idClaims);
 
+    const claimsInfo = profileFromClaims([ accessClaims, idClaims, userinfo ], claimNames);
+
     return {
       provider: 'oidc',
-      ...profileFromClaims([ accessClaims, idClaims, userinfo ], claimNames),
+      ...claimsInfo,
       accessToken,
       accessTokenExp,
       accessTokenValid,

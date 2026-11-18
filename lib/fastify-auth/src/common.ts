@@ -18,6 +18,8 @@ export type UserProfile = {
   username: string
   groups?: string[]
   roles: string[]
+  // The scopes granted to the client, where the method knows them
+  scopes?: string[]
   expiry?: Date
 };
 
