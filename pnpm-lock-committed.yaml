@@ -778,6 +778,9 @@ importers:
       fastify-plugin:
         specifier: ^6.0.1
         version: 6.0.1
+      jose:
+        specifier: ^6.2.15
+        version: 6.2.15
       openid-client:
         specifier: ^6.8.9
         version: 6.8.9
