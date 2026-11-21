@@ -18,6 +18,8 @@ export type UserProfile = {
   username: string
   groups?: string[]
   roles: string[]
+  // The scopes granted to the client, where the method knows them
+  scopes?: string[]
   expiry?: Date
 };
 
@@ -55,6 +57,8 @@ export type AuthBag = {
   deserialize?: Deserialize
   terminate?: SubRouteHandlerMethod
   wantSession: boolean
+  // Authenticates every request on its own, so needs no session or sign-in routes, even without privacy
+  perRequest?: boolean
 };
 
 export type AuthBagger<T> = (config: T, fullSessions: boolean, log: FastifyBaseLogger) => Promised<AuthBag>;

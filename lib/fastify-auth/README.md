@@ -58,7 +58,7 @@ A Fastify plugin which can be 'registered' with the following options.
 
 Options object:
 
-- **`method: 'none' | 'dummy' | 'headers' | 'basic' | 'oidc'`**
+- **`method: 'none' | 'dummy' | 'headers' | 'basic' | 'bearer-oauth2' | 'oidc'`**
   The method to use to authenticate users.
   - `'none'`: No authentication (you might want this if you just want a
               session).
@@ -67,12 +67,15 @@ Options object:
                  reverse proxy). **WARNING:** This is insecure when not behind a
                  reverse authentication proxy.
   - `'basic'`: HTTP [Basic authentication].
+  - `'bearer-oauth2'`: OAuth 2.0 access tokens sent to an API as bearer
+                       tokens, such as those that `'oidc'` gets. See below.
   - `'oidc'`: [OpenID Connect]. (Such as [Keycloak] etc.)
 - **`privacy: boolean`**
   When `true`, user must be authenticated to access any part of the website.
   When `false`, users can still access the website but may not have access to
   all features when those features require certain roles. Users can typically
-  choose to log-in to acquire extra permissions.
+  choose to log-in to acquire extra permissions. With `'bearer-oauth2'`, a
+  request may leave out its token, but a token it sends must still be valid.
 - **`session: object`**
   See: https://www.npmjs.com/package/@react-foundry/fastify-session
 
@@ -81,7 +84,54 @@ Options object:
 
 An object representing the user data. Includes the `username` and `roles`. When
 using OIDC, it should also contain the `accessToken` for making requests to
-other services on behalf of the user.
+other services on behalf of the user. With OIDC and `'bearer-oauth2'`, it has
+the `scopes` granted to the client, read from the access token's `scope` or
+`scp` claim.
+
+
+### Bearer tokens for an API
+
+The `'bearer-oauth2'` method checks each request's `Authorization` header for
+an OAuth 2.0 bearer token (`Authorization: Bearer <token>`), with no session,
+sign-in or redirect. It's intended for APIs, such as one that a web app calls
+with the access token that the OIDC method gets for it.
+
+It checks JSON Web Token (JWT) access tokens against the keys that the
+provider publishes, which it finds from the provider's OpenID Connect
+discovery document or OAuth 2.0 metadata:
+
+- the signature, which must use an asymmetric algorithm;
+- the issuer, `iss`;
+- the audience, `aud`, so that a token issued for another API is refused;
+- the expiry, `exp`, which it requires, and `nbf`;
+- the token type, which may be `JWT` or RFC 9068's `at+jwt`.
+
+```ts
+httpd.register(fastifyAuth, {
+  method: AuthMethod.BearerOAuth2,
+  issuer: 'https://keycloak/realms/my-realm',  // The same issuer as the web app's
+  audience: 'my-api'                           // The API's identifier, which its tokens carry in `aud`
+});
+```
+
+- **`audience`** is required. Microsoft Entra ID uses the API's client ID in
+  version 2 tokens. Keycloak needs an audience mapper to add the API to its
+  access tokens.
+- **`claims`** says which claims hold the user's ID and username, as for the
+  OIDC method. By default, the ID is `oid`, falling back to `sub`, and the
+  username is the first of `username`, `preferred_username`, `email` and
+  `sub`. A configured claim is used on its own, with no fallback.
+
+`req.user` is built from the token's claims as the OIDC method builds it,
+including roles from Keycloak and Entra ID. It also has the token itself, as
+`accessToken`, and the scopes granted to the client, as `scopes`, read from
+`scope` or `scp`. Roles say what the user may do. Scopes say what the client
+that holds the token may do on the user's behalf, so a route can check both.
+
+Without a token, a request gets `401` with `WWW-Authenticate: Bearer`. With
+an invalid token, it gets `401` with `error="invalid_token"`, as RFC 6750
+describes. The method doesn't check opaque tokens, which would need token
+introspection.
 
 
 ### OIDC client authentication

@@ -285,6 +285,7 @@ describe('OIDC authentication with Entra ID', () => {
         expect(decodeJwt(user.accessToken).payload).toMatchObject({ aud: clientId, scp: 'access_as_user' });
         expect(user).toMatchObject({ ...fromIdToken, accessTokenValid: true });
         expect(user.userinfo).toMatchObject({ email: 'alice@contoso.example' });
+        expect(user.scopes).toEqual([ 'access_as_user' ]);
         expect(logs).toHaveLength(0);
       });
 
