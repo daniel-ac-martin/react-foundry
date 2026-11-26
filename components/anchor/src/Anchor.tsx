@@ -12,6 +12,8 @@ export type ActiveMatching = 'strict' | 'loose';
 
 export type AnchorProps = StandardProps & AnchorHTMLAttributes<HTMLAnchorElement> & {
   children?: ReactNode | undefined
+  /** Whether the anchor links to the current page (overrides matching the href against the current location when set) */
+  active?: boolean | undefined
   /** Whether to consider the anchor active when on a sub-page (loose) or only on the exact page in the href (strict) */
   activeMatching?: ActiveMatching | undefined
   /** Whether to force the link to be treated as external (useful for internal links that are NOT handled by the application) */
@@ -24,6 +26,7 @@ const supportedProtocols = [
 ];
 
 const AnchorInner: FC<AnchorProps> = ({
+  active: _active,
   activeMatching = 'strict',
   children,
   classBlock,
@@ -34,7 +37,8 @@ const AnchorInner: FC<AnchorProps> = ({
   ...attrs
 }) => {
   const isMounted = useIsMounted();
-  const active = useIsActive()(href || '', activeMatching !== 'loose');
+  const isActive = useIsActive();
+  const active = _active ?? isActive(href || '', activeMatching !== 'loose');
   const current = useLocation();
   const classModifiers = [
     active ? 'active' : '',
@@ -97,6 +101,7 @@ const AnchorInner: FC<AnchorProps> = ({
 };
 
 export const Anchor: FC<AnchorProps> = ({
+  active,
   children,
   classBlock,
   classModifiers,
@@ -108,6 +113,7 @@ export const Anchor: FC<AnchorProps> = ({
   const classes = classBuilder('penultimate-anchor', classBlock, classModifiers, className);
   const props = {
     ...attrs,
+    active,
     classBlock,
     classModifiers,
     className,

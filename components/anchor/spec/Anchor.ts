@@ -64,6 +64,69 @@ describe('Anchor', () => {
     });
   });
 
+  describe('when given the active prop', () => {
+    describe('and it is rendered', () => {
+      // React warns about an unknown DOM attribute only once per test file, so this needs to be the first render with the active prop.
+      const consoleError = console.error;
+      let errors: string[] = [];
+
+      beforeEach(async () => {
+        errors = [];
+        console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+        render(h(Anchor, { href: '/location', active: true }, 'My link'));
+      });
+
+      afterEach(() => {
+        console.error = consoleError;
+      });
+
+      it('does NOT pass the active prop on to the element', async () => {
+        expect(errors.filter(e => e.includes('active'))).toEqual([]);
+        expect(screen.getByRole('link')).not.toHaveAttribute('active');
+      });
+    });
+
+    describe('set to true and the URL is NOT the current page', () => {
+      beforeEach(async () => {
+        render(h(Anchor, { href: '/location', active: true }, 'My link'));
+      });
+
+      it('is a link', async () => expect(screen.getByRole('link')).toBeInTheDocument());
+      it('to the HRef provided', async () => expect(screen.getByRole('link')).toHaveAttribute('href', '/location'));
+      it('is marked as active', async () => expect(screen.getByRole('link')).toHaveClass(activeClass));
+      it('is marked as the current page', async () => expect(screen.getByRole('link')).toHaveAttribute('aria-current', 'page'));
+    });
+
+    describe('set to false and the URL is the current page', () => {
+      beforeEach(async () => {
+        render(h(Anchor, { href: '/current', active: false }, 'My link'));
+      });
+
+      it('is a link', async () => expect(screen.getByRole('link')).toBeInTheDocument());
+      it('to the HRef provided', async () => expect(screen.getByRole('link')).toHaveAttribute('href', '/current'));
+      it('is NOT marked as active', async () => expect(screen.getByRole('link')).not.toHaveClass(activeClass));
+      it('is NOT marked as the current page', async () => expect(screen.getByRole('link')).not.toHaveAttribute('aria-current'));
+    });
+
+    describe('left undefined and the URL is the current page', () => {
+      beforeEach(async () => {
+        render(h(Anchor, { href: '/current', active: undefined }, 'My link'));
+      });
+
+      it('is marked as active', async () => expect(screen.getByRole('link')).toHaveClass(activeClass));
+      it('is marked as the current page', async () => expect(screen.getByRole('link')).toHaveAttribute('aria-current', 'page'));
+    });
+
+    describe('left undefined and the URL is NOT the current page', () => {
+      beforeEach(async () => {
+        render(h(Anchor, { href: '/location', active: undefined }, 'My link'));
+      });
+
+      it('is NOT marked as active', async () => expect(screen.getByRole('link')).not.toHaveClass(activeClass));
+      it('is NOT marked as the current page', async () => expect(screen.getByRole('link')).not.toHaveAttribute('aria-current'));
+    });
+  });
+
   describe.skip('when given a href with an absolute URL', () => {
     beforeEach(async () => {
       render(h(Anchor, { href: '//example.com/location' }, 'My link'));
